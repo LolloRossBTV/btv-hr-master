@@ -11,6 +11,24 @@ MAT_FERIE_GUARDIA = 1.83
 MAT_FERIE_FIDUCIARIO = 1.50
 MAT_ROL_FIDUCIARIO = 0.50
 
+def send_email(subject, body):
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = st.secrets["emails"]["sender_email"]
+        msg['To'] = st.secrets["emails"]["receiver_email"]
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
+        
+        server = smtplib.SMTP(st.secrets["emails"]["smtp_server"], st.secrets["emails"]["smtp_port"])
+        server.starttls()
+        server.login(st.secrets["emails"]["sender_email"], st.secrets["emails"]["sender_password"])
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        st.error(f"Errore invio email: {e}")
+        return False
+
 def applica_maturazione(df_dip):
     df_dip['Ferie'] = pd.to_numeric(df_dip['Ferie'], errors='coerce').fillna(0)
     df_dip['ROL'] = pd.to_numeric(df_dip['ROL'], errors='coerce').fillna(0)
@@ -33,20 +51,22 @@ def aggiorna_maturazioni_mensili(df_dip, config):
             config['last_update'] = oggi.strftime('%Y-%m-%d')
             return df_dip, True
     except Exception as e:
-        st.error(f"Errore aggiornamento: {e}")
+        return df_dip, False
     return df_dip, False
 
-# --- LOGICA PRINCIPALE ---
+# --- CONNESSIONE DATI ---
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     df_dip = conn.read(worksheet="Dipendenti", ttl=0)
+    df_richieste = conn.read(worksheet="Richieste", ttl=0)
     config_df = conn.read(worksheet="Config", ttl=0)
     config = dict(zip(config_df.key, config_df.value))
     df_dip, aggiornato = aggiorna_maturazioni_mensili(df_dip, config)
 except Exception as e:
-    st.error(f"⚠️ ERRORE DI CONNESSIONE: {e}")
+    st.error(f"⚠️ Errore di connessione: {e}")
     st.stop()
 
+# --- INTERFACCIA ---
 st.title("Sistema Gestione Ferie BTV")
 menu = ["Visualizza Saldi", "Inserisci Richiesta", "Gestione Admin"]
 choice = st.sidebar.selectbox("Menu", menu)
@@ -57,11 +77,22 @@ if choice == "Visualizza Saldi":
 
 elif choice == "Inserisci Richiesta":
     st.subheader("Nuova Richiesta")
-    nome = st.selectbox("Seleziona Dipendente", df_dip['Nome'].tolist())
-    tipo = st.radio("Tipo", ["Ferie", "ROL"])
-    if st.button("Invia Richiesta"):
-        st.success(f"Richiesta inviata per {nome}!")
+    with st.form("form_richiesta"):
+        nome = st.selectbox("Dipendente", df_dip['Nome'].tolist())
+        tipo = st.radio("Tipo", ["Ferie", "ROL", "Permesso"])
+        inizio = st.date_input("Dal")
+        fine = st.date_input("Al")
+        note = st.text_area("Note")
+        submit = st.form_submit_button("Invia Richiesta")
+        
+        if submit:
+            messaggio = f"Nuova richiesta da {nome}: {tipo} dal {inizio} al {fine}\nNote: {note}"
+            if send_email(f"Richiesta {tipo} - {nome}", messaggio):
+                st.success("Richiesta inviata via e-mail con successo!")
+            else:
+                st.warning("Richiesta registrata ma errore nell'invio e-mail.")
 
 elif choice == "Gestione Admin":
-    st.subheader("Area Riservata")
-    st.info("Qui potrai approvare le richieste.")
+    st.subheader("Area Riservata Amministrazione")
+    st.write("Richieste Ricevute:")
+    st.dataframe(df_richieste)
