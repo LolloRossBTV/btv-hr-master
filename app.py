@@ -91,13 +91,17 @@ def salva_config(nuovo_limite, nuovo_mese):
 # 3. LOGICA DI CALCOLO MATURAZIONE (GUARDIE vs FIDUCIARI)
 # ==============================================================================
 def applica_maturazione(df_dip):
+    # Trasformiamo le colonne in numeri, altrimenti il calcolo fallisce
+    df_dip['Ferie'] = pd.to_numeric(df_dip['Ferie'], errors='coerce').fillna(0)
+    df_dip['ROL'] = pd.to_numeric(df_dip['ROL'], errors='coerce').fillna(0)
+
     for idx, row in df_dip.iterrows():
-        try:
-            # Assicuriamoci che i valori siano numeri, se vuoti diventano 0
-            ferie_attuali = pd.to_numeric(df_dip.at[idx, 'Ferie'], errors='coerce') or 0
-            rol_attuali = pd.to_numeric(df_dip.at[idx, 'ROL'], errors='coerce') or 0
-            
-            if row['Contratto'] == "Guardia":
+        if row['Contratto'] == "Guardia":
+            df_dip.at[idx, 'Ferie'] += MAT_FERIE_GUARDIA
+        else:
+            df_dip.at[idx, 'Ferie'] += MAT_FERIE_FIDUCIARIO
+            df_dip.at[idx, 'ROL'] += MAT_ROL_FIDUCIARIO
+    return df_dip
                 df_dip.at[idx, 'Ferie'] = ferie_attuali + MAT_FERIE_GUARDIA
             else:
                 df_dip.at[idx, 'Ferie'] = ferie_attuali + MAT_FERIE_FIDUCIARIO
