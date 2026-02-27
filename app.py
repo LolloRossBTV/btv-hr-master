@@ -101,7 +101,7 @@ def applica_maturazione(df_dip):
         else:
             df_dip.at[idx, 'Ferie'] += MAT_FERIE_FIDUCIARIO
             df_dip.at[idx, 'ROL'] += MAT_ROL_FIDUCIARIO
-    return df_dipdef applica_maturazione(df_dip):
+    return df_dip
     # Trasforma le colonne in numeri (se c'è testo mette 0) per evitare il TypeError
     df_dip['Ferie'] = pd.to_numeric(df_dip['Ferie'], errors='coerce').fillna(0)
     df_dip['ROL'] = pd.to_numeric(df_dip['ROL'], errors='coerce').fillna(0)
