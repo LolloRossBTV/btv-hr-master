@@ -13,7 +13,14 @@ from streamlit_gsheets import GSheetsConnection
 st.set_page_config(page_title="Battistolli HR Master v57.1", layout="wide")
 
 # Connessione al foglio Google tramite st.secrets
-conn = st.connection("gsheets", type=GSheetsConnection)
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    # Proviamo subito a leggere per vedere se esplode qui
+    test_df = conn.read(worksheet="Dipendenti", ttl="0s")
+except Exception as e:
+    st.error("⚠️ ERRORE DI CONNESSIONE RILEVATO:")
+    st.code(str(e))
+    st.stop()
 
 def carica_dati_google():
     """Legge i dati direttamente dal foglio Google Online"""
