@@ -92,11 +92,18 @@ def salva_config(nuovo_limite, nuovo_mese):
 # ==============================================================================
 def applica_maturazione(df_dip):
     for idx, row in df_dip.iterrows():
-        if row['Contratto'] == "Guardia":
-            df_dip.at[idx, 'Ferie'] += MAT_FERIE_GUARDIA
-        else:
-            df_dip.at[idx, 'Ferie'] += MAT_FERIE_FIDUCIARIO
-            df_dip.at[idx, 'ROL'] += MAT_ROL_FIDUCIARIO
+        try:
+            # Assicuriamoci che i valori siano numeri, se vuoti diventano 0
+            ferie_attuali = pd.to_numeric(df_dip.at[idx, 'Ferie'], errors='coerce') or 0
+            rol_attuali = pd.to_numeric(df_dip.at[idx, 'ROL'], errors='coerce') or 0
+            
+            if row['Contratto'] == "Guardia":
+                df_dip.at[idx, 'Ferie'] = ferie_attuali + MAT_FERIE_GUARDIA
+            else:
+                df_dip.at[idx, 'Ferie'] = ferie_attuali + MAT_FERIE_FIDUCIARIO
+                df_dip.at[idx, 'ROL'] = rol_attuali + MAT_ROL_FIDUCIARIO
+        except Exception as e:
+            continue # Salta la riga se c'è un errore grave sui dati
     return df_dip
 
 def aggiorna_maturazioni_mensili(df_dip, config):
