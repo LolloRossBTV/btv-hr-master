@@ -66,6 +66,10 @@ except Exception as e:
     st.error(f"⚠️ Errore di connessione: {e}")
     st.stop()
 
+# --- GESTIONE STATO AUTENTICAZIONE ---
+if 'autenticato' not in st.session_state:
+    st.session_state.autenticato = False
+
 # --- LOGICA DI ACCESSO (LOGIN) ---
 if not st.session_state.autenticato:
     st.title("Benvenuto in BTV")
@@ -75,7 +79,7 @@ if not st.session_state.autenticato:
     password_input = st.text_input("Inserisci la tua Password", type="password")
     
     if st.button("Accedi"):
-        # Recupero riga utente e pulizia password
+        # Recupero e pulizia password dal foglio
         raw_pass = str(df_dip.loc[df_dip['Nome'] == nome_utente, 'Password'].values[0])
         password_corretta = raw_pass.replace('.0', '').strip()
         
@@ -84,10 +88,8 @@ if not st.session_state.autenticato:
             st.session_state.utente_loggato = nome_utente
             st.rerun()
         else:
-            st.error(f"❌ Password errata. (Rilevato: {password_corretta})")
-            st.rerun()
-        else:
             st.error(f"❌ Password errata per {nome_utente}. Riprova.")
+
 else:
     # --- INTERFACCIA PER UTENTI LOGGATI ---
     st.sidebar.success(f"Loggato come: {st.session_state.utente_loggato}")
