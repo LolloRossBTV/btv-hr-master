@@ -67,9 +67,6 @@ except Exception as e:
     st.stop()
 
 # --- LOGICA DI ACCESSO (LOGIN) ---
-if 'autenticato' not in st.session_state:
-    st.session_state.autenticato = False
-
 if not st.session_state.autenticato:
     st.title("Benvenuto in BTV")
     st.subheader("Accesso Riservato")
@@ -78,13 +75,16 @@ if not st.session_state.autenticato:
     password_input = st.text_input("Inserisci la tua Password", type="password")
     
     if st.button("Accedi"):
-        # Recupero password con pulizia spazi e conversione in stringa
-        raw_pass = df_dip.loc[df_dip['Nome'] == nome_utente, 'Password'].values[0]
-        password_corretta = str(raw_pass).strip()
+        # Recupero riga utente e pulizia password
+        raw_pass = str(df_dip.loc[df_dip['Nome'] == nome_utente, 'Password'].values[0])
+        password_corretta = raw_pass.replace('.0', '').strip()
         
         if str(password_input).strip() == password_corretta:
             st.session_state.autenticato = True
             st.session_state.utente_loggato = nome_utente
+            st.rerun()
+        else:
+            st.error(f"❌ Password errata. (Rilevato: {password_corretta})")
             st.rerun()
         else:
             st.error(f"❌ Password errata per {nome_utente}. Riprova.")
