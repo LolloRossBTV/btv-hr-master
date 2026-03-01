@@ -133,6 +133,4 @@ else:
             st.dataframe(df_dip)
         else:
             st.error("Area riservata all'amministratore.")
-    st.subheader("Area Riservata Amministrazione")
-    st.write("Richieste Ricevute:")
-    st.dataframe(df_richieste)
+
