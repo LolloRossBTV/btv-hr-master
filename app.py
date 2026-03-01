@@ -71,26 +71,23 @@ if 'autenticato' not in st.session_state:
     st.session_state.autenticato = False
 
 if not st.session_state.autenticato:
-    st.sidebar.image("https://www.gstatic.com/images/branding/product/2x/avatar_anonymous_128dp.png", width=100)
     st.title("Benvenuto in BTV")
     st.subheader("Accesso Riservato")
     
+    nome_utente = st.selectbox("Seleziona il tuo Nome", df_dip['Nome'].tolist())
     password_input = st.text_input("Inserisci la tua Password", type="password")
     
     if st.button("Accedi"):
-        # Recuperiamo la password corretta dal foglio, trasformandola in stringa e pulendo gli spazi
+        # Recupero password con pulizia spazi e conversione in stringa
         raw_pass = df_dip.loc[df_dip['Nome'] == nome_utente, 'Password'].values[0]
         password_corretta = str(raw_pass).strip()
         
-        # Confrontiamo con l'input dell'utente (anch'esso pulito)
         if str(password_input).strip() == password_corretta:
             st.session_state.autenticato = True
             st.session_state.utente_loggato = nome_utente
             st.rerun()
         else:
             st.error(f"❌ Password errata per {nome_utente}. Riprova.")
-        else:
-            st.error("❌ Password errata. Riprova.")
 else:
     # --- INTERFACCIA PER UTENTI LOGGATI ---
     st.sidebar.success(f"Loggato come: {st.session_state.utente_loggato}")
@@ -102,7 +99,6 @@ else:
     menu = ["I miei Saldi", "Inserisci Richiesta", "Gestione Admin"]
     choice = st.sidebar.selectbox("Cosa vuoi fare?", menu)
 
-    # Filtra i dati per mostrare solo quelli dell'utente loggato
     dati_utente = df_dip[df_dip['Nome'] == st.session_state.utente_loggato]
 
     if choice == "I miei Saldi":
@@ -123,14 +119,14 @@ else:
                 if send_email(f"Richiesta {tipo} - {st.session_state.utente_loggato}", messaggio):
                     st.success("✅ Richiesta inviata via e-mail!")
                 else:
-                    st.warning("⚠️ Errore nell'invio e-mail, avvisa l'amministratore.")
+                    st.warning("⚠️ Errore invio e-mail, avvisa l'amministratore.")
 
     elif choice == "Gestione Admin":
-        # Qui potrai aggiungere un controllo: se l'utente è Lorenzo, mostra tutto
-        if st.session_state.utente_loggato == "Lorenzo Rossini": # Cambia con il tuo nome esatto sul foglio
+        if st.session_state.utente_loggato == "Lorenzo Rossini":
             st.subheader("Area Amministrazione")
-            st.write("Tutti i dipendenti:")
+            st.write("Riepilogo Dipendenti:")
             st.dataframe(df_dip)
+            st.write("Richieste Ricevute:")
+            st.dataframe(df_richieste)
         else:
             st.error("Area riservata all'amministratore.")
-
