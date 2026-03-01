@@ -75,16 +75,20 @@ if not st.session_state.autenticato:
     st.title("Benvenuto in BTV")
     st.subheader("Accesso Riservato")
     
-    nome_utente = st.selectbox("Seleziona il tuo Nome", df_dip['Nome'].tolist())
-    # Assicurati che nel foglio Google ci sia la colonna 'Password'
     password_input = st.text_input("Inserisci la tua Password", type="password")
     
     if st.button("Accedi"):
-        password_corretta = df_dip.loc[df_dip['Nome'] == nome_utente, 'Password'].values[0]
-        if str(password_input) == str(password_corretta):
+        # Recuperiamo la password corretta dal foglio, trasformandola in stringa e pulendo gli spazi
+        raw_pass = df_dip.loc[df_dip['Nome'] == nome_utente, 'Password'].values[0]
+        password_corretta = str(raw_pass).strip()
+        
+        # Confrontiamo con l'input dell'utente (anch'esso pulito)
+        if str(password_input).strip() == password_corretta:
             st.session_state.autenticato = True
             st.session_state.utente_loggato = nome_utente
             st.rerun()
+        else:
+            st.error(f"❌ Password errata per {nome_utente}. Riprova.")
         else:
             st.error("❌ Password errata. Riprova.")
 else:
