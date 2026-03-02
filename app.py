@@ -54,42 +54,61 @@ except Exception as e:
     st.error(f"❌ Errore di connessione al Database: {e}")
     st.stop()
 
-# --- 4. GESTIONE ACCESSO E SICUREZZA ---
+# --- 4. LOGICA ACCESSO E SICUREZZA ---
 if not st.session_state.autenticato:
-    st.title("🛡️ Accesso Portale BTV")
-    
-    if not st.session_state.cambio_obbligatorio:
-        st.subheader("Seleziona il tuo profilo per accedere")
-        nomi_per_menu = sorted(df_dip['Nome_Display'].unique())
-        utente_selezionato = st.selectbox("DIPENDENTE", ["--- Scegli Nome ---"] + nomi_per_menu)
-        password_inserita = st.text_input("PASSWORD", type="password")
+    # Se l'utente deve cambiare password, mostriamo SOLO questa maschera
+    if st.session_state.cambio_obbligatorio:
+        st.title("🔑 Cambio Password Obbligatorio")
+        st.warning(f"Ciao {st.session_state.utente_loggato}, per motivi di sicurezza devi impostare una nuova password.")
         
-        if st.button("Accedi al Portale"):
-            if utente_selezionato != "--- Scegli Nome ---":
-                # Trova la riga corrispondente nel DataFrame
-                idx = df_dip[df_dip['Nome_Display'] == utente_selezionato].index[0]
-                dati_utente = df_dip.iloc[idx]
-                
-                # Pulizia password da residui Excel (.0)
-                pw_corretta = str(dati_utente['Password']).split('.')[0].strip()
-                
-                if str(password_inserita).strip() == pw_corretta:
-                    st.session_state.utente_loggato = dati_utente['Nome_Display']
+        with st.container():
+            n_p = st.text_input("Nuova Password (min. 5 caratteri)", type="password", key="new_pw_field")
+            c_p = st.text_input("Conferma Nuova Password", type="password", key="conf_pw_field")
+            
+            if st.button("Salva e Accedi al Portale"):
+                if n_p == c_p and len(n_n) >= 5:
+                    # Troviamo l'indice corretto nel database
+                    idx_u = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
+                    # Aggiorniamo i dati
+                    df_dip.at[idx_u, 'Password'] = n_p
+                    df_dip.at[idx_u, 'PrimoAccesso'] = 'FALSE'
                     
-                    # Controllo se è richiesto il cambio password al primo accesso
-                    is_primo = str(dati_utente['PrimoAccesso']).strip().upper()
-                    if is_primo in ['1', '1.0', 'TRUE', 'SÌ', 'VERO']:
-                        st.session_state.cambio_obbligatorio = True
-                        st.rerun()
-                    else:
-                        st.session_state.autenticato = True
-                        st.rerun()
+                    # Invio aggiornamento a Google Sheets
+                    conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
+                    
+                    # Sblocchiamo l'accesso
+                    st.session_state.cambio_obbligatorio = False
+                    st.session_state.autenticato = True
+                    st.success("✅ Password aggiornata! Caricamento in corso...")
+                    st.rerun()
                 else:
-                    st.error("❌ Password non corretta. Riprova.")
-            else:
-                st.warning("⚠️ Seleziona il tuo nome dalla lista.")
+                    st.error("❌ Le password non coincidono o sono troppo brevi (min. 5 car).")
+        st.stop() # Blocca il resto dell'esecuzione per non mostrare il login sotto
+
+    # Se non deve cambiare password, mostra il Login normale
+    st.title("🛡️ Accesso Portale BTV")
+    nomi_per_menu = sorted(df_dip['Nome_Display'].unique())
+    u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + nomi_per_menu)
+    p_in = st.text_input("PASSWORD", type="password")
     
-    else:
+    if st.button("Accedi"):
+        if u_scelto != "--- Seleziona ---":
+            idx = df_dip[df_dip['Nome_Display'] == u_scelto].index[0]
+            row = df_dip.iloc[idx]
+            pw_db = str(row['Password']).split('.')[0].strip()
+            
+            if str(p_in).strip() == pw_db:
+                st.session_state.utente_loggato = row['Nome_Display']
+                is_primo = str(row['PrimoAccesso']).strip().upper()
+                
+                if is_primo in ['1', '1.0', 'TRUE', 'SÌ', 'VERO']:
+                    st.session_state.cambio_obbligatorio = True
+                    st.rerun()
+                else:
+                    st.session_state.autenticato = True
+                    st.rerun()
+            else:
+                st.error("❌ Password errata.")
         # --- SCHERMATA CAMBIO PASSWORD OBBLIGATORIO ---
         st.subheader("🔑 Sicurezza: Imposta Nuova Password")
         st.info(f"Benvenuto {st.session_state.utente_loggato}. Devi cambiare la password predefinita.")
