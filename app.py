@@ -114,8 +114,12 @@ else:
         st.header("Compila la richiesta")
         st.info("Funzione in arrivo...")
 
-    elif choice == "Gestione Admin":
-        if st.session_state.utente_loggato == "Lorenzo Rossini":
+
+elif choice == "Gestione Admin":
+        # Controllo flessibile: trasforma tutto in maiuscolo per evitare errori
+        utente_attuale = st.session_state.utente_loggato.upper()
+        
+        if "LORENZO" in utente_attuale and "ROSSINI" in utente_attuale:
             st.header("🛠️ Pannello di Controllo Admin")
             
             # Visualizzazione tabella generale
@@ -126,26 +130,22 @@ else:
             
             # --- FUNZIONE RESET PASSWORD ---
             st.subheader("🔐 Reset Password Dipendente")
-            st.write("Usa questa funzione se un dipendente dimentica la password. Verrà riportata a '12345' con obbligo di cambio al primo accesso.")
+            st.write("Riporta la password a '12345' con obbligo di cambio.")
             
-            # Seleziona il dipendente da resettare (escludendo te stesso per sicurezza)
-            lista_dipendenti = df_dip[df_dip['Nome'] != "Lorenzo Rossini"]['Nome'].tolist()
+            # Seleziona il dipendente escludendo se stessi
+            lista_dipendenti = [n for n in df_dip['Nome'].tolist() if "ROSSINI" not in n.upper()]
             dip_da_resettare = st.selectbox("Seleziona Dipendente", lista_dipendenti)
             
             if st.button("Esegui Reset Password"):
-                # Trova l'indice del dipendente scelto
                 idx_res = df_dip.index[df_dip['Nome'] == dip_da_resettare].tolist()[0]
-                
-                # Applica i valori di default
                 df_dip.at[idx_res, 'Password'] = '12345'
                 df_dip.at[idx_res, 'PrimoAccesso'] = 'TRUE'
                 
                 try:
-                    # Aggiorna Google Sheets
                     conn.update(worksheet="Dipendenti", data=df_dip)
-                    st.success(f"✅ Reset completato per {dip_da_resettare}! Password impostata a '12345'.")
-                    st.balloons() # Un po' di animazione per festeggiare il successo
+                    st.success(f"✅ Reset completato per {dip_da_resettare}!")
+                    st.balloons()
                 except Exception as e:
-                    st.error(f"Errore durante il reset: {e}")
+                    st.error(f"Errore: {e}")
         else:
-            st.error("⛔ Accesso negato. Solo l'amministratore può accedere a questa sezione.")
+            st.error(f"⛔ Accesso negato. Il sistema ti riconosce come '{st.session_state.utente_loggato}', che non ha permessi admin.")
