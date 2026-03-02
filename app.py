@@ -56,39 +56,32 @@ except Exception as e:
 
 # --- 4. LOGICA ACCESSO E SICUREZZA ---
 if not st.session_state.autenticato:
-    # Se l'utente deve cambiare password, mostriamo SOLO questa maschera
     if st.session_state.cambio_obbligatorio:
         st.title("🔑 Cambio Password Obbligatorio")
-        st.warning(f"Ciao {st.session_state.utente_loggato}, per motivi di sicurezza devi impostare una nuova password.")
+        st.warning(f"Ciao {st.session_state.utente_loggato}, imposta una nuova password.")
         
-        with st.container():
-            n_p = st.text_input("Nuova Password (min. 5 caratteri)", type="password", key="new_pw_field")
-            c_p = st.text_input("Conferma Nuova Password", type="password", key="conf_pw_field")
-            
-            if st.button("Salva e Accedi al Portale"):
-                if n_p == c_p and len(n_n) >= 5:
-                    # Troviamo l'indice corretto nel database
-                    idx_u = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
-                    # Aggiorniamo i dati
-                    df_dip.at[idx_u, 'Password'] = n_p
-                    df_dip.at[idx_u, 'PrimoAccesso'] = 'FALSE'
-                    
-                    # Invio aggiornamento a Google Sheets
-                    conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
-                    
-                    # Sblocchiamo l'accesso
-                    st.session_state.cambio_obbligatorio = False
-                    st.session_state.autenticato = True
-                    st.success("✅ Password aggiornata! Caricamento in corso...")
-                    st.rerun()
-                else:
-                    st.error("❌ Le password non coincidono o sono troppo brevi (min. 5 car).")
-        st.stop() # Blocca il resto dell'esecuzione per non mostrare il login sotto
+        n_p = st.text_input("Nuova Password (min. 5 caratteri)", type="password")
+        c_p = st.text_input("Conferma Nuova Password", type="password")
+        
+        if st.button("Salva e Accedi al Portale"):
+            # CORRETTO: n_p invece di n_n
+            if n_p == c_p and len(n_p) >= 5:
+                idx_u = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
+                df_dip.at[idx_u, 'Password'] = n_p
+                df_dip.at[idx_u, 'PrimoAccesso'] = 'FALSE'
+                
+                conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
+                st.session_state.cambio_obbligatorio = False
+                st.session_state.autenticato = True
+                st.success("✅ Password aggiornata!")
+                st.rerun()
+            else:
+                st.error("❌ Le password non coincidono o sono troppo brevi.")
+        st.stop()
 
-    # Se non deve cambiare password, mostra il Login normale
     st.title("🛡️ Accesso Portale BTV")
-    nomi_per_menu = sorted(df_dip['Nome_Display'].unique())
-    u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + nomi_per_menu)
+    nomi_lista = sorted(df_dip['Nome_Display'].unique())
+    u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + nomi_lista)
     p_in = st.text_input("PASSWORD", type="password")
     
     if st.button("Accedi"):
@@ -96,12 +89,9 @@ if not st.session_state.autenticato:
             idx = df_dip[df_dip['Nome_Display'] == u_scelto].index[0]
             row = df_dip.iloc[idx]
             pw_db = str(row['Password']).split('.')[0].strip()
-            
             if str(p_in).strip() == pw_db:
                 st.session_state.utente_loggato = row['Nome_Display']
-                is_primo = str(row['PrimoAccesso']).strip().upper()
-                
-                if is_primo in ['1', '1.0', 'TRUE', 'SÌ', 'VERO']:
+                if str(row['PrimoAccesso']).strip().upper() in ['1', '1.0', 'TRUE', 'SÌ']:
                     st.session_state.cambio_obbligatorio = True
                     st.rerun()
                 else:
@@ -109,28 +99,6 @@ if not st.session_state.autenticato:
                     st.rerun()
             else:
                 st.error("❌ Password errata.")
-        # --- SCHERMATA CAMBIO PASSWORD OBBLIGATORIO ---
-        st.subheader("🔑 Sicurezza: Imposta Nuova Password")
-        st.info(f"Benvenuto {st.session_state.utente_loggato}. Devi cambiare la password predefinita.")
-        nuova_pw = st.text_input("Nuova Password (min. 5 caratteri)", type="password")
-        conferma_pw = st.text_input("Conferma Nuova Password", type="password")
-        
-        if st.button("Salva e Accedi"):
-            if nuova_pw == conferma_pw and len(nuova_pw) >= 5:
-                idx_u = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
-                df_dip.at[idx_u, 'Password'] = nuova_pw
-                df_dip.at[idx_u, 'PrimoAccesso'] = 'FALSE'
-                
-                # Aggiornamento fisico del foglio Google
-                conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
-                st.session_state.cambio_obbligatorio = False
-                st.session_state.autenticato = True
-                st.success("Password aggiornata correttamente!")
-                st.rerun()
-            else:
-                st.error("❌ Le password non coincidono o sono troppo brevi.")
-
-else:
     # --- 5. INTERFACCIA UTENTE AUTENTICATO ---
     st.sidebar.success(f"👤 Utente: {st.session_state.utente_loggato}")
     
