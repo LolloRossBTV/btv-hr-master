@@ -122,16 +122,24 @@ else:
         u_row = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato]
         st.table(u_row[['Ferie', 'ROL', 'Contratto']])
 
-    # --- 7. PAGINA: INVIA RICHIESTA (CON CALENDARIO) ---
+    # --- 7. PAGINA: INVIA RICHIESTA (CON CALENDARIO E NUOVE VOCI) ---
     elif choice == "Invia Richiesta":
         st.header("Modulo di Richiesta Assenza")
         with st.form("form_richiesta_completo"):
-            tipo_a = st.selectbox("Tipo", ["Ferie", "ROL (Permesso Orario)", "Recupero Ore"])
+            # Menu a tendina aggiornato con 104 e Congedi
+            tipo_a = st.selectbox("Tipo di assenza", [
+                "Ferie", 
+                "ROL (Permesso Orario)", 
+                "Legge 104", 
+                "Congedo Parentale", 
+                "Recupero Ore",
+                "Malattia / Infortunio"
+            ])
             
             st.write("Seleziona le date sul calendario (clicca inizio e fine periodo):")
             d_range = st.date_input("Periodo", value=(), label_visibility="collapsed")
             
-            note_a = st.text_area("Note aggiuntive (obbligatorio indicare orari per i ROL)")
+            note_a = st.text_area("Note aggiuntive (obbligatorio indicare orari per i ROL o dettagli per 104)")
             
             if st.form_submit_button("Invia ai Responsabili"):
                 if len(d_range) == 2:
@@ -157,7 +165,7 @@ else:
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("➕ Nuovo Dipendente")
-            new_n = st.text_input("Nome e Cognome").strip()
+            new_n = st.text_input("Nome e Cognome").upper().strip()
             new_c = st.selectbox("Contratto", ["Guardia", "Fiduciario"])
             if st.button("Salva nel Foglio"):
                 nuovo = {"Nome": new_n, "Password": "12345", "Contratto": new_c, "Ferie": 0, "ROL": 0, "PrimoAccesso": "TRUE"}
@@ -168,9 +176,11 @@ else:
         
         with c2:
             st.subheader("🗑️ Elimina")
-            del_n = st.selectbox("Chi vuoi rimuovere?", sorted(df_dip['Nome_Display'].unique()))
+            # Lista aggiornata dinamicamente per l'eliminazione
+            lista_del = sorted(df_dip['Nome_Display'].unique())
+            del_n = st.selectbox("Chi vuoi rimuovere?", lista_del)
             if st.button("Elimina Definitivamente"):
                 df_rem = df_dip[df_dip['Nome_Display'] != del_n].drop(columns=['Nome_Display'])
                 conn.update(worksheet="Dipendenti", data=df_rem)
-                st.warning("Rimosso.")
+                st.warning(f"Utente {del_n} rimosso.")
                 st.rerun()
