@@ -60,31 +60,26 @@ if not st.session_state.autenticato:
         st.title("🔑 Cambio Password Obbligatorio")
         st.warning(f"Ciao {st.session_state.utente_loggato}, imposta una nuova password.")
         
-        # Maschera per l'inserimento della nuova password
-        n_p = st.text_input("Nuova Password (min. 5 caratteri)", type="password")
-        c_p = st.text_input("Conferma Nuova Password", type="password")
+        # Uso di nomi variabili univoci per evitare NameError
+        nuova_pw = st.text_input("Nuova Password (min. 5 caratteri)", type="password")
+        conferma_pw = st.text_input("Conferma Nuova Password", type="password")
         
         if st.button("Salva e Accedi al Portale"):
-            # CORREZIONE: n_p è la variabile corretta per il controllo lunghezza
-            if n_p == c_p and len(n_p) >= 5:
-                # Recupero indice e aggiornamento dati
+            # CORREZIONE: Controllo esatto sulle variabili appena create
+            if nuova_pw == conferma_pw and len(nuova_pw) >= 5:
                 idx_u = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
-                df_dip.at[idx_u, 'Password'] = n_p
+                df_dip.at[idx_u, 'Password'] = nuova_pw
                 df_dip.at[idx_u, 'PrimoAccesso'] = 'FALSE'
                 
-                # Sincronizzazione con Google Sheets
                 conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
-                
-                # Sblocco sessione
                 st.session_state.cambio_obbligatorio = False
                 st.session_state.autenticato = True
                 st.success("✅ Password aggiornata!")
                 st.rerun()
             else:
-                st.error("❌ Le password non coincidono o sono troppo brevi (min. 5 car).")
-        st.stop() # Impedisce di mostrare il login sotto la maschera di cambio pw
+                st.error("❌ Le password non coincidono o sono troppo brevi.")
+        st.stop()
 
-    # Interfaccia di Login standard
     st.title("🛡️ Accesso Portale BTV")
     nomi_lista = sorted(df_dip['Nome_Display'].unique())
     u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + nomi_lista)
@@ -95,12 +90,11 @@ if not st.session_state.autenticato:
             idx = df_dip[df_dip['Nome_Display'] == u_scelto].index[0]
             row = df_dip.iloc[idx]
             pw_db = str(row['Password']).split('.')[0].strip()
-            
             if str(p_in).strip() == pw_db:
-                st.session_state.utente_loggato = row['Nome_Display']
-                # Controllo se forzare il cambio password
-                is_primo = str(row['PrimoAccesso']).strip().upper()
-                if is_primo in ['1', '1.0', 'TRUE', 'SÌ', 'VERO']:
+                # Salviamo il nome come stringa pulita per evitare AttributeError: 'Series' object has no attribute 'upper'
+                st.session_state.utente_loggato = str(row['Nome_Display'])
+                
+                if str(row['PrimoAccesso']).strip().upper() in ['1', '1.0', 'TRUE', 'SÌ']:
                     st.session_state.cambio_obbligatorio = True
                     st.rerun()
                 else:
@@ -108,15 +102,19 @@ if not st.session_state.autenticato:
                     st.rerun()
             else:
                 st.error("❌ Password errata.")
-    # --- 5. INTERFACCIA UTENTE AUTENTICATO ---
-    st.sidebar.success(f"👤 Utente: {st.session_state.utente_loggato}")
+
+else:
+    # --- 5. AREA UTENTE E MENU ---
+    # Conversione forzata a stringa per sicurezza prima di usare .upper()
+    nome_per_sidebar = str(st.session_state.utente_loggato)
+    st.sidebar.success(f"👤 {nome_per_sidebar}")
     
-    opzioni = ["I miei Saldi", "Invia Richiesta"]
-    # Controllo privilegi amministratore (basato sul cognome Rossini)
-    if "ROSSINI" in st.session_state.utente_loggato.upper():
-        opzioni.append("Pannello Amministrazione")
+    menu = ["I miei Saldi", "Invia Richiesta"]
+    # Controllo Admin risolto: ora nome_per_sidebar è certamente una stringa
+    if "ROSSINI" in nome_per_sidebar.upper():
+        menu.append("Pannello Admin")
     
-    scelta_menu = st.sidebar.selectbox("Navigazione", opzioni)
+    choice = st.sidebar.selectbox("Navigazione", menu)
     
     if st.sidebar.button("Logout / Esci"):
         st.session_state.autenticato = False
