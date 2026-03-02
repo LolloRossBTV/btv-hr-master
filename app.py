@@ -116,7 +116,36 @@ else:
 
     elif choice == "Gestione Admin":
         if st.session_state.utente_loggato == "Lorenzo Rossini":
-            st.header("Pannello Admin")
+            st.header("🛠️ Pannello di Controllo Admin")
+            
+            # Visualizzazione tabella generale
+            st.subheader("Riepilogo Dipendenti")
             st.dataframe(df_dip)
+            
+            st.divider()
+            
+            # --- FUNZIONE RESET PASSWORD ---
+            st.subheader("🔐 Reset Password Dipendente")
+            st.write("Usa questa funzione se un dipendente dimentica la password. Verrà riportata a '12345' con obbligo di cambio al primo accesso.")
+            
+            # Seleziona il dipendente da resettare (escludendo te stesso per sicurezza)
+            lista_dipendenti = df_dip[df_dip['Nome'] != "Lorenzo Rossini"]['Nome'].tolist()
+            dip_da_resettare = st.selectbox("Seleziona Dipendente", lista_dipendenti)
+            
+            if st.button("Esegui Reset Password"):
+                # Trova l'indice del dipendente scelto
+                idx_res = df_dip.index[df_dip['Nome'] == dip_da_resettare].tolist()[0]
+                
+                # Applica i valori di default
+                df_dip.at[idx_res, 'Password'] = '12345'
+                df_dip.at[idx_res, 'PrimoAccesso'] = 'TRUE'
+                
+                try:
+                    # Aggiorna Google Sheets
+                    conn.update(worksheet="Dipendenti", data=df_dip)
+                    st.success(f"✅ Reset completato per {dip_da_resettare}! Password impostata a '12345'.")
+                    st.balloons() # Un po' di animazione per festeggiare il successo
+                except Exception as e:
+                    st.error(f"Errore durante il reset: {e}")
         else:
-            st.error("Riservato all'Admin.")
+            st.error("⛔ Accesso negato. Solo l'amministratore può accedere a questa sezione.")
