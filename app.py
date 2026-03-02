@@ -6,7 +6,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # --- 1. CONFIGURAZIONE ---
-st.set_page_config(page_title="Portale BTV", layout="centered")
+st.set_page_config(page_title="Portale Gestionale BTV", layout="centered")
 
 if 'autenticato' not in st.session_state:
     st.session_state.autenticato = False
@@ -41,39 +41,43 @@ try:
     df_dip = conn.read(worksheet="Dipendenti", ttl=0).dropna(subset=['Nome'])
     df_dip['Nome_Display'] = df_dip['Nome'].astype(str).str.strip()
 except Exception as e:
-    st.error(f"Errore Database: {e}")
+    st.error(f"❌ Errore Database: {e}")
     st.stop()
 
 # --- 4. ACCESSO E SICUREZZA ---
 if not st.session_state.autenticato:
+    # MASCHERA CAMBIO PASSWORD (FORZATA)
     if st.session_state.cambio_obbligatorio:
         st.title("🔑 Cambio Password Obbligatorio")
-        st.info(f"Utente: {st.session_state.utente_loggato}")
-        # Variabili rinominate per evitare NameError
-        nuova_pass = st.text_input("Nuova Password", type="password")
-        conf_pass = st.text_input("Conferma Password", type="password")
-        if st.button("Aggiorna e Accedi"):
-            if nuova_pass == conf_pass and len(nuova_pass) >= 5:
+        st.warning(f"Ciao {st.session_state.utente_loggato}, imposta una nuova password.")
+        
+        nuova_p = st.text_input("Nuova Password (min. 5 car.)", type="password")
+        conf_p = st.text_input("Conferma Nuova Password", type="password")
+        
+        if st.button("Salva e Accedi"):
+            if nuova_p == conf_p and len(nuova_p) >= 5:
                 idx = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
-                df_dip.at[idx, 'Password'] = nuova_pass
+                df_dip.at[idx, 'Password'] = nuova_p
                 df_dip.at[idx, 'PrimoAccesso'] = 'FALSE'
                 conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
                 st.session_state.cambio_obbligatorio = False
                 st.session_state.autenticato = True
                 st.rerun()
             else:
-                st.error("Le password non coincidono o sono troppo brevi.")
+                st.error("❌ Password non valide o troppo brevi.")
         st.stop()
 
+    # SCHERMATA LOGIN
     st.title("🛡️ Accesso BTV")
     u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + sorted(df_dip['Nome_Display'].unique()))
     p_in = st.text_input("PASSWORD", type="password")
+    
     if st.button("Entra"):
         if u_scelto != "--- Seleziona ---":
             idx = df_dip[df_dip['Nome_Display'] == u_scelto].index[0]
             row = df_dip.iloc[idx]
-            if str(p_in).strip() == str(row['Password']).split('.')[0].strip():
-                # Forza stringa per evitare AttributeError
+            pw_db = str(row['Password']).split('.')[0].strip()
+            if str(p_in).strip() == pw_db:
                 st.session_state.utente_loggato = str(row['Nome_Display'])
                 if str(row['PrimoAccesso']).strip().upper() in ['1', 'TRUE', 'SÌ']:
                     st.session_state.cambio_obbligatorio = True
@@ -81,44 +85,44 @@ if not st.session_state.autenticato:
                     st.session_state.autenticato = True
                 st.rerun()
             else:
-                st.error("Password errata")
+                st.error("❌ Password errata")
     st.stop()
 
 # --- 5. AREA PRIVATA ---
 else:
-    nome_corrente = str(st.session_state.utente_loggato)
-    st.sidebar.success(f"👤 {nome_corrente}")
+    nome_u = str(st.session_state.utente_loggato)
+    st.sidebar.success(f"👤 {nome_u}")
     
-    opzioni = ["I miei Saldi", "Invia Richiesta"]
-    if "ROSSINI" in nome_corrente.upper():
-        opzioni.append("Pannello Admin")
+    menu = ["I miei Saldi", "Invia Richiesta"]
+    if "ROSSINI" in nome_u.upper():
+        menu.append("Pannello Admin")
     
-    scelta = st.sidebar.selectbox("Menu", opzioni)
-    if st.sidebar.button("Esci"):
+    scelta = st.sidebar.selectbox("Navigazione", menu)
+    if st.sidebar.button("Logout"):
         st.session_state.autenticato = False
         st.rerun()
 
     if scelta == "I miei Saldi":
-        st.header("I tuoi contatori")
-        st.table(df_dip[df_dip['Nome_Display'] == nome_corrente][['Ferie', 'ROL', 'Contratto']])
+        st.header("Situazione Saldi")
+        st.table(df_dip[df_dip['Nome_Display'] == nome_u][['Ferie', 'ROL', 'Contratto']])
 
     elif scelta == "Invia Richiesta":
-        st.header("Modulo Richiesta")
-        with st.form("invio_form"):
-            # Menu pulito come da richiesta
+        st.header("Nuova Richiesta")
+        with st.form("form_richiesta"):
+            # MENU PULITO (Senza Malattia e Recupero)
             tipo = st.selectbox("Causale", ["Ferie", "ROL (Permesso Orario)", "Legge 104", "Congedo Parentale"])
-            date = st.date_input("Periodo", value=())
-            note = st.text_area("Note")
-            if st.form_submit_button("Invia"):
+            date = st.date_input("Seleziona Date", value=())
+            note = st.text_area("Note aggiuntive")
+            if st.form_submit_button("Invia ai Responsabili"):
                 if len(date) >= 1:
-                    testo_date = f"Dal {date[0]} al {date[1]}" if len(date)==2 else f"Giorno {date[0]}"
-                    msg = f"Dipendente: {nome_corrente}\nTipo: {tipo}\nPeriodo: {testo_date}\nNote: {note}"
-                    if send_email(f"RICHIESTA {tipo.upper()} - {nome_corrente}", msg):
-                        st.success("Inviata!")
+                    testo_d = f"Dal {date[0]} al {date[1]}" if len(date)==2 else f"Giorno {date[0]}"
+                    corpo = f"Dipendente: {nome_u}\nTipo: {tipo}\nPeriodo: {testo_d}\nNote: {note}"
+                    if send_email(f"RICHIESTA {tipo.upper()} - {nome_u}", corpo):
+                        st.success("✅ Inviata correttamente!")
                         st.balloons()
                 else:
-                    st.error("Scegli le date!")
+                    st.error("⚠️ Seleziona le date!")
 
     elif scelta == "Pannello Admin":
-        st.header("Gestione Personale")
+        st.header("⚙️ Amministrazione")
         st.dataframe(df_dip.drop(columns=['Nome_Display']))
