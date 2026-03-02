@@ -6,12 +6,12 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# --- 1. CONFIGURAZIONE ---
+# --- 1. CONFIGURAZIONE PARAMETRI ---
 MAT_FERIE_GUARDIA = 1.83
 MAT_FERIE_FIDUCIARIO = 1.50
 MAT_ROL_FIDUCIARIO = 0.50
 
-# --- 2. STATO SESSIONE ---
+# --- 2. INIZIALIZZAZIONE STATO ---
 if 'autenticato' not in st.session_state:
     st.session_state.autenticato = False
 if 'utente_loggato' not in st.session_state:
@@ -19,63 +19,59 @@ if 'utente_loggato' not in st.session_state:
 if 'cambio_obbligatorio' not in st.session_state:
     st.session_state.cambio_obbligatorio = False
 
-# --- 3. FUNZIONE EMAIL ---
+# --- 3. FUNZIONE MOTORE EMAIL ---
 def send_email(subject, body):
     try:
-        SENDER = st.secrets["emails"]["sender_email"]
-        PASS = st.secrets["emails"]["sender_password"]
-        RECEIVER = st.secrets["emails"]["receiver_email"]
-        SMTP_SERVER = st.secrets["emails"]["smtp_server"]
-        SMTP_PORT = st.secrets["emails"]["smtp_port"]
-
         msg = MIMEMultipart()
-        msg['From'] = SENDER
-        msg['To'] = RECEIVER
+        msg['From'] = st.secrets["emails"]["sender_email"]
+        msg['To'] = st.secrets["emails"]["receiver_email"]
         msg['Subject'] = subject
         msg.attach(MIMEText(body, 'plain'))
-
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server = smtplib.SMTP(st.secrets["emails"]["smtp_server"], st.secrets["emails"]["smtp_port"])
         server.starttls()
-        server.login(SENDER, PASS)
+        server.login(st.secrets["emails"]["sender_email"], st.secrets["emails"]["sender_password"])
         server.send_message(msg)
         server.quit()
         return True
     except Exception as e:
-        st.error(f"❌ ERRORE AUTENTICAZIONE EMAIL (535): {e}")
-        st.warning("⚠️ Nota: Devi usare una 'Password per le app' di Google, non la tua password solita.")
+        st.error(f"❌ Errore Email (Credenziali 535): {e}")
         return False
 
-# --- 4. CARICAMENTO DATI ---
+# --- 4. CARICAMENTO E PULIZIA DATI ---
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     df_dip = conn.read(worksheet="Dipendenti", ttl=0)
-    # Pulizia dati per evitare errori di tipo
+    # Colonna di servizio per il match senza errori 'Series' object
+    df_dip['Nome_Match'] = df_dip['Nome'].astype(str).str.strip().str.upper()
+    
+    # Pulizia PrimoAccesso
     df_dip['PrimoAccesso'] = df_dip['PrimoAccesso'].astype(str).str.strip().upper()
 except Exception as e:
-    st.error(f"Errore caricamento dati: {e}")
+    st.error(f"❌ Errore Database: {e}")
     st.stop()
 
-# --- 5. LOGICA LOGIN ---
+# --- 5. LOGICA ACCESSO (LOGIN) ---
 if not st.session_state.autenticato:
     st.title("🛡️ Portale Personale BTV")
     
     if not st.session_state.cambio_obbligatorio:
-        st.subheader("Login")
-        u_input = st.text_input("Inserisci COGNOME NOME").strip().upper()
-        p_input = st.text_input("Password", type="password")
+        st.subheader("Login Riservato")
+        nome_in = st.text_input("Inserisci COGNOME NOME").strip().upper()
+        pass_in = st.text_input("Password", type="password")
         
         if st.button("Accedi"):
-            if u_input in df_dip['Nome'].str.upper().values:
-                idx = df_dip[df_dip['Nome'].str.upper() == u_input].index[0]
+            if nome_in in df_dip['Nome_Match'].values:
+                idx = df_dip[df_dip['Nome_Match'] == nome_in].index[0]
                 u_row = df_dip.iloc[idx]
                 
-                # Controllo Password
-                pass_db = str(u_row['Password']).replace('.0', '').strip()
-                if str(p_input).strip() == pass_db:
+                # Gestione password
+                pw_db = str(u_row['Password']).split('.')[0].strip()
+                
+                if str(pass_in).strip() == pw_db:
                     st.session_state.utente_loggato = u_row['Nome']
                     
-                    # CONTROLLO CAMBIO PW (CORRETTO)
-                    if u_row['PrimoAccesso'] in ['TRUE', '1', '1.0', 'SÌ', 'VERO']:
+                    # CONTROLLO FORZATO CAMBIO PASSWORD
+                    if u_row['PrimoAccesso'] in ['1', '1.0', 'TRUE', 'VERO', 'SÌ']:
                         st.session_state.cambio_obbligatorio = True
                         st.rerun()
                     else:
@@ -87,84 +83,98 @@ if not st.session_state.autenticato:
                 st.error("❌ Utente non trovato.")
     
     else:
-        st.subheader("🔑 Cambio Password Obbligatorio")
-        st.info(f"Ciao {st.session_state.utente_loggato}, devi impostare una password sicura.")
-        n_p = st.text_input("Nuova Password", type="password")
-        c_p = st.text_input("Conferma Password", type="password")
+        st.subheader("🔑 Primo Accesso: Cambio Password")
+        st.warning(f"Ciao {st.session_state.utente_loggato}, imposta una nuova password obbligatoria.")
+        new_p = st.text_input("Nuova Password", type="password")
+        conf_p = st.text_input("Conferma Password", type="password")
         
-        if st.button("Salva e Accedi"):
-            if n_p == c_p and len(n_p) >= 5:
-                idx = df_dip.index[df_dip['Nome'] == st.session_state.utente_loggato][0]
-                df_dip.at[idx, 'Password'] = n_p
-                df_dip.at[idx, 'PrimoAccesso'] = 'FALSE'
-                conn.update(worksheet="Dipendenti", data=df_dip)
+        if st.button("Salva Password e Entra"):
+            if new_p == conf_p and len(new_p) >= 5:
+                idx_orig = df_dip[df_dip['Nome'] == st.session_state.utente_loggato].index[0]
+                df_dip.at[idx_orig, 'Password'] = new_p
+                df_dip.at[idx_orig, 'PrimoAccesso'] = 'FALSE'
+                
+                df_save = df_dip.drop(columns=['Nome_Match'])
+                conn.update(worksheet="Dipendenti", data=df_save)
+                
                 st.session_state.cambio_obbligatorio = False
                 st.session_state.autenticato = True
-                st.success("Password aggiornata!")
+                st.success("✅ Password aggiornata!")
                 st.rerun()
             else:
-                st.error("❌ Le password non coincidono o sono troppo brevi.")
+                st.error("❌ Errore: le password non coincidono o sono troppo brevi.")
 
 else:
-    # --- 6. INTERFACCIA ---
-    st.sidebar.success(f"Loggato: {st.session_state.utente_loggato}")
-    if st.sidebar.button("Logout"):
+    # --- 6. INTERFACCIA PRINCIPALE ---
+    st.sidebar.success(f"👤 {st.session_state.utente_loggato}")
+    if st.sidebar.button("Esci (Logout)"):
         st.session_state.autenticato = False
         st.rerun()
 
-    menu = ["I miei Saldi", "Richiesta Ferie", "Gestione Admin"]
-    choice = st.sidebar.selectbox("Menu", menu)
+    menu = ["I miei Saldi", "Invia Richiesta", "Gestione Admin"]
+    choice = st.sidebar.selectbox("Naviga nel menu", menu)
 
     if choice == "I miei Saldi":
-        st.header("Contatori Personali")
+        st.header("Situazione Personale")
         dati = df_dip[df_dip['Nome'] == st.session_state.utente_loggato]
         st.table(dati[['Ferie', 'ROL', 'Contratto']])
 
-    elif choice == "Richiesta Ferie":
-        st.header("Nuova Richiesta")
-        with st.form("form_f"):
-            tipo = st.selectbox("Tipo", ["Ferie", "ROL"])
-            note = st.text_area("Note")
+    elif choice == "Invia Richiesta":
+        st.header("Nuova Richiesta Ferie/ROL")
+        with st.form("form_rich"):
+            tipo = st.selectbox("Cosa richiedi?", ["Ferie", "ROL", "Permesso"])
+            inizio = st.date_input("Dal")
+            fine = st.date_input("Al")
+            note = st.text_area("Note aggiuntive")
             if st.form_submit_button("Invia ai Responsabili"):
-                corpo = f"Dipendente: {st.session_state.utente_loggato}\nTipo: {tipo}\nNote: {note}"
+                corpo = f"Richiesta da: {st.session_state.utente_loggato}\nTipo: {tipo}\nPeriodo: {inizio} - {fine}\nNote: {note}"
                 if send_email(f"RICHIESTA PORTALE - {st.session_state.utente_loggato}", corpo):
-                    st.success("Email inviata correttamente!")
+                    st.success("✅ Richiesta inviata via email!")
                     st.balloons()
 
     elif choice == "Gestione Admin":
-        # CONTROLLO ADMIN UNIVERSALE PER LORENZO
-        user_name = st.session_state.utente_loggato.upper()
-        if "LORENZO" in user_name and "ROSSINI" in user_name:
-            st.header("🛠️ Pannello Amministratore")
-            st.dataframe(df_dip)
+        # Controllo Accesso Lorenzo
+        u_log = st.session_state.utente_loggato.upper()
+        if "LORENZO" in u_log and "ROSSINI" in u_log:
+            st.header("⚙️ Area Amministrazione")
+            st.dataframe(df_dip.drop(columns=['Nome_Match']))
             
+            # --- AGGIUNGI ---
             st.divider()
-            st.subheader("➕ Aggiungi / 🗑️ Elimina")
-            col_add, col_del = st.columns(2)
-            
-            with col_add:
-                n_new = st.text_input("Nome Nuovo").upper()
+            st.subheader("➕ Aggiungi Dipendente")
+            with st.expander("Apri Form Inserimento"):
+                n_new = st.text_input("Nome e Cognome nuovo").upper()
                 c_new = st.selectbox("Contratto", ["Guardia", "Fiduciario"])
-                if st.button("Aggiungi"):
-                    new_r = {"Nome": n_new, "Password": "12345", "Contratto": c_new, "Ferie": 0, "ROL": 0, "PrimoAccesso": "TRUE"}
-                    df_dip = pd.concat([df_dip, pd.DataFrame([new_r])], ignore_index=True)
-                    conn.update(worksheet="Dipendenti", data=df_dip)
-                    st.rerun()
-            
-            with col_del:
-                n_del = st.text_input("Nome da eliminare").upper()
-                if st.button("Elimina"):
-                    df_dip = df_dip[df_dip['Nome'] != n_del]
-                    conn.update(worksheet="Dipendenti", data=df_dip)
-                    st.rerun()
-            
+                if st.button("Salva Nuovo Dipendente"):
+                    if n_new:
+                        new_r = {"Nome": n_new, "Password": "12345", "Contratto": c_new, "Ferie": 0, "ROL": 0, "PrimoAccesso": "TRUE"}
+                        df_upd = pd.concat([df_dip.drop(columns=['Nome_Match']), pd.DataFrame([new_r])], ignore_index=True)
+                        conn.update(worksheet="Dipendenti", data=df_upd)
+                        st.success(f"✅ {n_new} aggiunto!")
+                        st.rerun()
+
+            # --- ELIMINA ---
+            st.divider()
+            st.subheader("🗑️ Elimina Dipendente")
+            with st.expander("Apri Form Rimozione"):
+                n_del = st.text_input("Scrivi nome esatto da eliminare").upper()
+                if st.button("CONFERMA ELIMINAZIONE"):
+                    if n_del in df_dip['Nome'].values:
+                        df_rem = df_dip[df_dip['Nome'] != n_del].drop(columns=['Nome_Match'])
+                        conn.update(worksheet="Dipendenti", data=df_rem)
+                        st.warning(f"🗑️ {n_del} eliminato.")
+                        st.rerun()
+
+            # --- RESET ---
             st.divider()
             st.subheader("🔐 Reset Password")
-            # Menu a tendina per evitare errori di battitura nel reset
-            u_reset = st.selectbox("Seleziona dipendente per reset", df_dip['Nome'].values)
-            if st.button("Esegui Reset a 12345"):
-                df_dip.loc[df_dip['Nome'] == u_reset, ['Password', 'PrimoAccesso']] = ['12345', 'TRUE']
-                conn.update(worksheet="Dipendenti", data=df_dip)
-                st.success(f"Reset completato per {u_reset}")
+            u_res = st.selectbox("Seleziona per reset a 12345", df_dip['Nome'].values)
+            if st.button("Esegui Reset"):
+                idx_r = df_dip[df_dip['Nome'] == u_res].index[0]
+                df_dip.at[idx_r, 'Password'] = '12345'
+                df_dip.at[idx_r, 'PrimoAccesso'] = 'TRUE'
+                df_save = df_dip.drop(columns=['Nome_Match'])
+                conn.update(worksheet="Dipendenti", data=df_save)
+                st.success(f"✅ Password di {u_res} resettata!")
         else:
-            st.error("⛔ Accesso negato. Solo l'amministratore può accedere a questa sezione.")
+            st.error("⛔ Accesso negato all'area Admin.")
