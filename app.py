@@ -82,94 +82,31 @@ if not st.session_state.autenticato:
     
     if not st.session_state.cambio_obbligatorio:
         st.subheader("Accesso Riservato")
-        nome_utente = st.selectbox("Seleziona il tuo Nome", df_dip['Nome'].tolist())
+        # --- CAMBIATO DA SELECTBOX A TEXT_INPUT ---
+        st.info("Digita il tuo COGNOME NOME (es. ROSSINI LORENZO)")
+        nome_digitato = st.text_input("Inserisci il tuo Nome e Cognome")
         password_input = st.text_input("Password", type="password")
         
         if st.button("Accedi"):
-            utente_row = df_dip.loc[df_dip['Nome'] == nome_utente]
-            password_db = str(utente_row.iloc[0]['Password']).replace('.0', '').strip()
-            valore_primo_acc = str(utente_row.iloc[0]['PrimoAccesso']).strip().upper()
-            is_primo_accesso = valore_primo_acc in ['TRUE', 'SÌ', '1', 'VERO', '1.0']
-            
-            if str(password_input).strip() == password_db:
-                st.session_state.utente_loggato = nome_utente
-                if is_primo_accesso:
-                    st.session_state.cambio_obbligatorio = True
-                    st.rerun()
+            n_pulito = nome_digitate.strip().upper()
+            # Cerchiamo se il nome esiste nel database (senza badare a maiuscole/minuscole)
+            if n_pulito in df_dip['Nome'].str.upper().values:
+                idx_utente = df_dip[df_dip['Nome'].str.upper() == n_pulito].index[0]
+                utente_row = df_dip.iloc[idx_utente]
+                
+                password_db = str(utente_row['Password']).replace('.0', '').strip()
+                valore_primo_acc = str(utente_row['PrimoAccesso']).strip().upper()
+                is_primo_accesso = valore_primo_acc in ['TRUE', 'SÌ', '1', 'VERO', '1.0']
+                
+                if str(password_input).strip() == password_db:
+                    st.session_state.utente_loggato = utente_row['Nome']
+                    if is_primo_accesso:
+                        st.session_state.cambio_obbligatorio = True
+                        st.rerun()
+                    else:
+                        st.session_state.autenticato = True
+                        st.rerun()
                 else:
-                    st.session_state.autenticato = True
-                    st.rerun()
+                    st.error("❌ Password errata.")
             else:
-                st.error("❌ Password errata.")
-    
-    else:
-        st.subheader("🔒 Cambio Password Obbligatorio")
-        st.info(f"Ciao {st.session_state.utente_loggato}, imposta una nuova password.")
-        new_pass = st.text_input("Nuova Password", type="password")
-        confirm_pass = st.text_input("Conferma Nuova Password", type="password")
-        
-        if st.button("Salva e Accedi"):
-            if new_pass == confirm_pass and len(new_pass) >= 5:
-                idx = df_dip.index[df_dip['Nome'] == st.session_state.utente_loggato].tolist()[0]
-                df_dip.at[idx, 'Password'] = new_pass
-                df_dip.at[idx, 'PrimoAccesso'] = 'FALSE'
-                conn.update(worksheet="Dipendenti", data=df_dip)
-                st.success("✅ Password aggiornata!")
-                st.session_state.cambio_obbligatorio = False
-                st.session_state.autenticato = True
-                st.rerun()
-            else:
-                st.error("❌ Password non valide (min 5 car).")
-
-else:
-    # --- 6. INTERFACCIA UTENTI LOGGATI ---
-    st.sidebar.success(f"Loggato: {st.session_state.utente_loggato}")
-    if st.sidebar.button("Logout"):
-        st.session_state.autenticato = False
-        st.rerun()
-
-    menu = ["I miei Saldi", "Nuova Richiesta", "Gestione Admin"]
-    choice = st.sidebar.selectbox("Cosa vuoi fare?", menu)
-
-    if choice == "I miei Saldi":
-        st.header(f"Saldi di {st.session_state.utente_loggato}")
-        dati_u = df_dip[df_dip['Nome'] == st.session_state.utente_loggato]
-        st.table(dati_u[['Ferie', 'ROL']])
-
-    elif choice == "Nuova Richiesta":
-        st.header("Compila la richiesta")
-        with st.form("form_richiesta"):
-            tipo = st.radio("Tipo", ["Ferie", "ROL", "Permesso"])
-            inizio = st.date_input("Inizio")
-            fine = st.date_input("Fine")
-            note = st.text_area("Note aggiuntive")
-            submit = st.form_submit_button("Invia Richiesta")
-            
-            if submit:
-                messaggio = f"Nuova richiesta da {st.session_state.utente_loggato}:\nTipo: {tipo}\nDal: {inizio}\nAl: {fine}\nNote: {note}"
-                if send_email(f"Richiesta {tipo} - {st.session_state.utente_loggato}", messaggio):
-                    st.success("✅ Richiesta inviata via e-mail!")
-                else:
-                    st.warning("⚠️ Errore invio e-mail, avvisa l'amministratore.")
-
-    elif choice == "Gestione Admin":
-        u_log = st.session_state.utente_loggato.upper()
-        if "LORENZO" in u_log and "ROSSINI" in u_log:
-            st.header("🛠️ Pannello Admin")
-            st.subheader("Riepilogo Dipendenti")
-            st.dataframe(df_dip)
-            
-            st.divider()
-            st.subheader("🔐 Reset Password")
-            st.warning("⚠️ Inserire il nome esattamente come nel database.")
-            
-            nome_da_resettare = st.text_input("Inserisci COGNOME NOME della risorsa")
-            
-            if st.button("Esegui Reset a 12345"):
-                n_pulito = nome_da_resettare.strip().upper()
-                if n_pulito in df_dip['Nome'].str.upper().values:
-                    idx = df_dip[df_dip['Nome'].str.upper() == n_pulito].index[0]
-                    df_dip.at[idx, 'Password'] = '12345'
-                    df_dip.at[idx, 'PrimoAccesso'] = 'TRUE'
-                    conn.update(worksheet="Dipendenti", data=df_dip)
-                    st.success
+                st.error("❌ Nome utente non trovato nel sistema.")
