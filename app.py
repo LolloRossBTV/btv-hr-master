@@ -57,28 +57,34 @@ except Exception as e:
 # --- 4. LOGICA ACCESSO E SICUREZZA ---
 if not st.session_state.autenticato:
     if st.session_state.cambio_obbligatorio:
+        # Questo blocco DEVE apparire da solo
         st.title("🔑 Cambio Password Obbligatorio")
-        st.warning(f"Ciao {st.session_state.utente_loggato}, imposta una nuova password.")
+        st.warning(f"Ciao {st.session_state.utente_loggato}, imposta una nuova password per continuare.")
         
-        # Variabili rinominate per chiarezza totale
-        nuova_p = st.text_input("Nuova Password (min. 5 caratteri)", type="password")
-        conf_p = st.text_input("Conferma Nuova Password", type="password")
+        with st.container():
+            nuova_p = st.text_input("Nuova Password (min. 5 caratteri)", type="password")
+            conf_p = st.text_input("Conferma Nuova Password", type="password")
+            
+            if st.button("Salva Password e Accedi"):
+                if nuova_p == conf_p and len(nuova_p) >= 5:
+                    idx_u = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
+                    df_dip.at[idx_u, 'Password'] = nuova_p
+                    df_dip.at[idx_u, 'PrimoAccesso'] = 'FALSE'
+                    
+                    # Salvataggio immediato
+                    conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
+                    
+                    st.session_state.cambio_obbligatorio = False
+                    st.session_state.autenticato = True
+                    st.success("✅ Password aggiornata!")
+                    st.rerun()
+                else:
+                    st.error("❌ Le password non coincidono o sono troppo brevi.")
         
-        if st.button("Salva e Accedi"):
-            # CORREZIONE NameError: controllo esatto sulle variabili appena create
-            if nuova_p == conf_p and len(nuova_p) >= 5:
-                idx_u = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
-                df_dip.at[idx_u, 'Password'] = nuova_p
-                df_dip.at[idx_u, 'PrimoAccesso'] = 'FALSE'
-                
-                conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
-                st.session_state.cambio_obbligatorio = False
-                st.session_state.autenticato = True
-                st.rerun()
-            else:
-                st.error("❌ Controlla che le password coincidano e siano lunghe almeno 5 caratteri.")
-        st.stop()
+        # FORZATURA: st.stop() impedisce a Streamlit di mostrare altro sotto
+        st.stop() 
 
+    # Se non c'è il cambio obbligatorio, mostra il Login normale
     st.title("🛡️ Accesso Portale BTV")
     nomi_l = sorted(df_dip['Nome_Display'].unique())
     u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + nomi_l)
@@ -91,10 +97,11 @@ if not st.session_state.autenticato:
             pw_db = str(row['Password']).split('.')[0].strip()
             
             if str(p_in).strip() == pw_db:
-                # CORREZIONE AttributeError: forziamo il nome a essere una stringa pulita
                 st.session_state.utente_loggato = str(row['Nome_Display'])
                 
-                if str(row['PrimoAccesso']).strip().upper() in ['1', '1.0', 'TRUE', 'SÌ']:
+                # Controllo se è il primo accesso (TRUE, 1 o SÌ)
+                is_primo = str(row['PrimoAccesso']).strip().upper()
+                if is_primo in ['1', '1.0', 'TRUE', 'SÌ', 'VERO']:
                     st.session_state.cambio_obbligatorio = True
                     st.rerun()
                 else:
@@ -102,8 +109,6 @@ if not st.session_state.autenticato:
                     st.rerun()
             else:
                 st.error("❌ Password errata.")
-
-else:
     # --- 5. AREA UTENTE E MENU ---
     # Recupero sicuro del nome come stringa
     nome_utente = str(st.session_state.utente_loggato)
