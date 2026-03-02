@@ -5,13 +5,11 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# --- 1. CONFIGURAZIONE STATO ---
+# --- CONFIGURAZIONE ---
 if 'autenticato' not in st.session_state:
     st.session_state.autenticato = False
-if 'utente_loggato' not in st.session_state:
-    st.session_state.utente_loggato = None
 
-# --- 2. FUNZIONE EMAIL (Gestione robusta errore 535) ---
+# --- FUNZIONE EMAIL (Gestione errore 535) ---
 def send_email(subject, body):
     try:
         msg = MIMEMultipart()
@@ -26,71 +24,58 @@ def send_email(subject, body):
         server.quit()
         return True
     except Exception as e:
-        st.error(f"❌ ERRORE EMAIL: Le credenziali Google nei Secrets non sono corrette (Errore 535).")
+        # Gestisce l'errore che vedi negli screen 5f3dbc, 5ed480, 5ed0a5, 5ecc43
+        st.error(f"❌ Errore 535: Password Google non accettata. Verifica i Secrets.")
         return False
 
-# --- 3. CARICAMENTO DATI (Correzione Errore 'Series') ---
+# --- CARICAMENTO DATI (Correzione Errore 'Series') ---
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
-    df_dip = conn.read(worksheet="Dipendenti", ttl=0)
-    # Creiamo una colonna di confronto sicura per evitare crash 'upper'
-    df_dip['Match'] = df_dip['Nome'].astype(str).str.upper().str.strip()
+    df = conn.read(worksheet="Dipendenti", ttl=0)
+    # Risolve l'errore 'Series' object has no attribute 'upper'
+    df['Nome_Match'] = df['Nome'].astype(str).str.upper().str.strip()
 except Exception as e:
-    st.error(f"❌ Errore critico database: {e}")
+    st.error(f"❌ Errore Database: {e}")
     st.stop()
 
-# --- 4. INTERFACCIA DI LOGIN ---
+# --- INTERFACCIA LOGIN ---
 if not st.session_state.autenticato:
-    st.title("🛡️ Accesso Portale BTV")
-    u_in = st.text_input("Inserisci COGNOME NOME").strip().upper()
+    st.title("🛡️ Accesso BTV")
+    # Istruzione chiara per Lorenzo
+    st.info("💡 Scrivi il nome ESATTAMENTE come nel foglio (es: ROSSINI LORENZO)")
+    u_in = st.text_input("Cognome Nome").strip().upper()
     p_in = st.text_input("Password", type="password")
     
     if st.button("Accedi"):
-        if u_in in df_dip['Match'].values:
-            idx = df_dip[df_dip['Match'] == u_in].index[0]
-            row = df_dip.iloc[idx]
-            # Pulizia password (toglie eventuali .0 finali)
-            pw_db = str(row['Password']).split('.')[0].strip()
+        if u_in in df['Nome_Match'].values:
+            idx = df[df['Nome_Match'] == u_in].index[0]
+            # Gestione password numeriche
+            pw_db = str(df.iloc[idx]['Password']).split('.')[0].strip()
             
             if str(p_in).strip() == pw_db:
-                st.session_state.utente_loggato = row['Nome']
+                st.session_state.utente_loggato = df.iloc[idx]['Nome']
                 st.session_state.autenticato = True
                 st.rerun()
             else:
-                st.error("❌ Password errata.")
+                st.error("❌ Password errata")
         else:
-            st.error("❌ Utente non trovato. Controlla lo spelling nel foglio Google.")
-
+            # Errore che vedi in image_f9755f
+            st.error(f"❌ Utente '{u_in}' non trovato nel database.")
 else:
-    # --- 5. AREA UTENTE LOGGATO ---
-    st.sidebar.success(f"👤 {st.session_state.utente_loggato}")
+    st.sidebar.write(f"👤 {st.session_state.utente_loggato}")
     if st.sidebar.button("Logout"):
         st.session_state.autenticato = False
         st.rerun()
-
-    menu = ["I miei Saldi", "Richiesta Ferie/ROL"]
-    # Aggiungi Area Admin solo per Lorenzo
-    if "LORENZO" in st.session_state.utente_loggato.upper():
-        menu.append("Area Admin")
     
-    choice = st.sidebar.selectbox("Menu", menu)
-
-    if choice == "I miei Saldi":
-        st.header("Situazione Contatori")
-        user_data = df_dip[df_dip['Nome'] == st.session_state.utente_loggato]
-        st.table(user_data[['Ferie', 'ROL', 'Contratto']])
-
-    elif choice == "Richiesta Ferie/ROL":
-        st.header("Invia Richiesta")
-        with st.form("form_invio"):
-            tipo = st.selectbox("Tipo", ["Ferie", "ROL"])
-            note = st.text_area("Note")
-            if st.form_submit_button("Invia ai Responsabili"):
-                corpo = f"Dipendente: {st.session_state.utente_loggato}\nTipo: {tipo}\nNote: {note}"
-                if send_email(f"RICHIESTA DA PORTALE - {st.session_state.utente_loggato}", corpo):
-                    st.success("✅ Email inviata con successo!")
-                    st.balloons()
-
-    elif choice == "Area Admin":
-        st.header("⚙️ Gestione Database")
-        st.dataframe(df_dip.drop(columns=['Match']))
+    st.header("Situazione Personale")
+    st.table(df[df['Nome'] == st.session_state.utente_loggato][['Ferie', 'ROL', 'Contratto']])
+    
+    # Form per invio email
+    with st.form("invio"):
+        t = st.selectbox("Tipo", ["Ferie", "ROL"])
+        note = st.text_area("Note")
+        if st.form_submit_button("Invia"):
+            testo = f"Richiesta da: {st.session_state.utente_loggato}\nTipo: {t}\nNote: {note}"
+            if send_email(f"Richiesta {t} - {st.session_state.utente_loggato}", testo):
+                st.success("✅ Inviata!")
+                st.balloons()
