@@ -109,28 +109,31 @@ else:
         st.header("Nuova Richiesta")
         st.info("Funzione di invio ferie in fase di test...")
 
-    elif choice == "Gestione Admin":
-        # Controllo Admin flessibile per ROSSINI LORENZO o Lorenzo Rossini
-        u_log = st.session_state.utente_loggato.upper()
-        if "LORENZO" in u_log and "ROSSINI" in u_log:
-            st.header("🛠️ Pannello di Controllo Admin")
-            st.subheader("Riepilogo Dipendenti")
-            st.dataframe(df_dip)
-            
-            st.divider()
+    st.divider()
             st.subheader("🔐 Reset Password")
-            lista_dip = [n for n in df_dip['Nome'].tolist() if "ROSSINI" not in n.upper()]
-            dip_da_res = st.selectbox("Seleziona Dipendente", lista_dip)
+            st.info("⚠️ NOTA: Scrivi il nome esattamente come appare nel database (es. COGNOME NOME).")
+            
+            # Campo di testo manuale invece del menu a tendina
+            nome_manuale = st.text_input("Scrivi il Nome e Cognome della risorsa da resettare")
             
             if st.button("Esegui Reset a 12345"):
-                idx_res = df_dip.index[df_dip['Nome'] == dip_da_res].tolist()[0]
-                df_dip.at[idx_res, 'Password'] = '12345'
-                df_dip.at[idx_res, 'PrimoAccesso'] = 'TRUE'
-                try:
-                    conn.update(worksheet="Dipendenti", data=df_dip)
-                    st.success(f"✅ Reset completato per {dip_da_res}!")
-                    st.balloons()
-                except Exception as e:
-                    st.error(f"Errore: {e}")
-        else:
-            st.error("⛔ Accesso negato. Solo Lorenzo Rossini può entrare qui.")
+                # Pulizia dell'input: tutto maiuscolo e senza spazi ai lati
+                nome_pulito = nome_manuale.strip().upper()
+                
+                # Verifichiamo se il nome esiste nel database
+                if nome_pulito in df_dip['Nome'].str.upper().values:
+                    # Troviamo l'indice esatto (senza curarci delle maiuscole nel DB)
+                    idx_res = df_dip[df_dip['Nome'].str.upper() == nome_pulito].index[0]
+                    nome_reale = df_dip.at[idx_res, 'Nome']
+                    
+                    df_dip.at[idx_res, 'Password'] = '12345'
+                    df_dip.at[idx_res, 'PrimoAccesso'] = 'TRUE'
+                    
+                    try:
+                        conn.update(worksheet="Dipendenti", data=df_dip)
+                        st.success(f"✅ Reset completato per {nome_reale}!")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"Errore: {e}")
+                else:
+                    st.error(f"❌ Errore: Il nome '{nome_manuale}' non è stato trovato nel database. Verifica l'ordine Cognome Nome.")
