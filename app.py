@@ -45,48 +45,60 @@ except Exception as e:
     st.stop()
 
 # --- 4. ACCESSO E SICUREZZA ---
-if not st.session_state.autenticato:
-    # MASCHERA CAMBIO PASSWORD (FORZATA)
-    if st.session_state.cambio_obbligatorio:
-        st.title("🔑 Cambio Password Obbligatorio")
-        st.warning(f"Ciao {st.session_state.utente_loggato}, imposta una nuova password.")
-        
-        nuova_p = st.text_input("Nuova Password (min. 5 car.)", type="password")
-        conf_p = st.text_input("Conferma Nuova Password", type="password")
-        
-        if st.button("Salva e Accedi"):
-            if nuova_p == conf_p and len(nuova_p) >= 5:
-                idx = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
-                df_dip.at[idx, 'Password'] = nuova_p
-                df_dip.at[idx, 'PrimoAccesso'] = 'FALSE'
-                conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
-                st.session_state.cambio_obbligatorio = False
-                st.session_state.autenticato = True
-                st.rerun()
-            else:
-                st.error("❌ Password non valide o troppo brevi.")
-        st.stop()
+placeholder = st.empty() # Crea uno spazio pulito per forzare il disegno della maschera
 
-    # SCHERMATA LOGIN
-    st.title("🛡️ Accesso BTV")
-    u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + sorted(df_dip['Nome_Display'].unique()))
-    p_in = st.text_input("PASSWORD", type="password")
-    
-    if st.button("Entra"):
-        if u_scelto != "--- Seleziona ---":
-            idx = df_dip[df_dip['Nome_Display'] == u_scelto].index[0]
-            row = df_dip.iloc[idx]
-            pw_db = str(row['Password']).split('.')[0].strip()
-            if str(p_in).strip() == pw_db:
-                st.session_state.utente_loggato = str(row['Nome_Display'])
-                if str(row['PrimoAccesso']).strip().upper() in ['1', 'TRUE', 'SÌ']:
-                    st.session_state.cambio_obbligatorio = True
-                else:
+if not st.session_state.autenticato:
+    with placeholder.container():
+        # --- SOTTO-FASE: CAMBIO PASSWORD OBBLIGATORIO ---
+        if st.session_state.cambio_obbligatorio:
+            st.title("🔑 Cambio Password Obbligatorio")
+            st.warning(f"Profilo: {st.session_state.utente_loggato}")
+            
+            # Usiamo chiavi univoche per i campi (key="...")
+            nuova_p = st.text_input("Nuova Password (min. 5 car.)", type="password", key="npw")
+            conf_p = st.text_input("Conferma Nuova Password", type="password", key="cpw")
+            
+            if st.button("Salva e Accedi", key="btn_save_pw"):
+                if nuova_p == conf_p and len(nuova_p) >= 5:
+                    idx = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
+                    df_dip.at[idx, 'Password'] = nuova_p
+                    df_dip.at[idx, 'PrimoAccesso'] = 'FALSE'
+                    
+                    conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
+                    
+                    st.session_state.cambio_obbligatorio = False
                     st.session_state.autenticato = True
-                st.rerun()
-            else:
-                st.error("❌ Password errata")
-    st.stop()
+                    st.rerun()
+                else:
+                    st.error("❌ Le password non coincidono o sono troppo brevi.")
+            st.stop() # Blocca qui finché non cambia password
+
+        # --- SOTTO-FASE: LOGIN STANDARD ---
+        st.title("🛡️ Accesso BTV")
+        nomi_per_login = sorted(df_dip['Nome_Display'].unique())
+        u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + nomi_per_login, key="login_user")
+        p_in = st.text_input("PASSWORD", type="password", key="login_pass")
+        
+        if st.button("Entra", key="btn_login"):
+            if u_scelto != "--- Seleziona ---":
+                idx = df_dip[df_dip['Nome_Display'] == u_scelto].index[0]
+                row = df_dip.iloc[idx]
+                # Pulizia password da eventuali decimali (.0)
+                pw_db = str(row['Password']).split('.')[0].strip()
+                
+                if str(p_in).strip() == pw_db:
+                    st.session_state.utente_loggato = str(row['Nome_Display'])
+                    
+                    # Controllo primo accesso
+                    is_primo = str(row['PrimoAccesso']).strip().upper()
+                    if is_primo in ['1', '1.0', 'TRUE', 'SÌ', 'VERO']:
+                        st.session_state.cambio_obbligatorio = True
+                    else:
+                        st.session_state.autenticato = True
+                    st.rerun()
+                else:
+                    st.error("❌ Password errata")
+    st.stop() # Non disegnare il resto dell'app se non sei autenticato
 
 # --- 5. AREA PRIVATA ---
 else:
