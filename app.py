@@ -58,16 +58,46 @@ if not st.session_state.autenticato:
             # Individuiamo la riga corretta dell'utente
             utente_row = df_dip.loc[df_dip['Nome'] == nome_utente]
             
-            # Pulizia dati (gestione numeri .0 e spazi)
+            # Pulizia password (gestione numeri .0 e spazi)
             password_db = str(utente_row.iloc[0]['Password']).replace('.0', '').strip()
-            primo_acc = str(utente_row.iloc[0]['PrimoAccesso']).strip().upper()
+            
+            # Controllo ultra-flessibile per PrimoAccesso (Legge TRUE, VERO, 1 o SÌ)
+            valore_primo_acc = str(utente_row.iloc[0]['PrimoAccesso']).strip().upper()
+            is_primo_accesso = valore_primo_acc in ['TRUE', 'SÌ', '1', 'VERO', '1.0']
             
             if str(password_input).strip() == password_db:
                 st.session_state.utente_loggato = nome_utente
-                # Se è TRUE (o True), obblighiamo al cambio
-                if primo_acc in ['TRUE', 'SÌ', '1']:
+                if is_primo_accesso:
                     st.session_state.cambio_obbligatorio = True
                     st.rerun()
+                else:
+                    st.session_state.autenticato = True
+                    st.rerun()
+            else:
+                st.error("❌ Password errata.")
+    
+    else:
+        st.subheader("🔒 Cambio Password Obbligatorio")
+        st.info(f"Ciao {st.session_state.utente_loggato}, devi impostare una nuova password.")
+        new_pass = st.text_input("Nuova Password", type="password")
+        confirm_pass = st.text_input("Conferma Nuova Password", type="password")
+        
+        if st.button("Salva e Accedi"):
+            if new_pass == confirm_pass and len(new_pass) >= 5:
+                idx = df_dip.index[df_dip['Nome'] == st.session_state.utente_loggato].tolist()[0]
+                df_dip.at[idx, 'Password'] = new_pass
+                df_dip.at[idx, 'PrimoAccesso'] = 'FALSE'
+                
+                try:
+                    conn.update(worksheet="Dipendenti", data=df_dip)
+                    st.success("✅ Password aggiornata!")
+                    st.session_state.cambio_obbligatorio = False
+                    st.session_state.autenticato = True
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Errore salvataggio: {e}")
+            else:
+                st.error("❌ Le password non coincidono o sono troppo corte (min. 5 car).")
                 else:
                     st.session_state.autenticato = True
                     st.rerun()
