@@ -6,18 +6,18 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# --- CONFIGURAZIONE ---
-MAT_FERIE_GUARDIA = 1.83
-MAT_FERIE_FIDUCIARIO = 1.50
-MAT_ROL_FIDUCIARIO = 0.50
-
-# Inizializzazione variabili di stato (Risolve l'errore riga 71)
+# --- INIZIALIZZAZIONE STATO (Risolve AttributeError riga 71) ---
 if 'autenticato' not in st.session_state:
     st.session_state.autenticato = False
 if 'utente_loggato' not in st.session_state:
     st.session_state.utente_loggato = None
 if 'cambio_obbligatorio' not in st.session_state:
     st.session_state.cambio_obbligatorio = False
+
+# --- CONFIGURAZIONE ---
+MAT_FERIE_GUARDIA = 1.83
+MAT_FERIE_FIDUCIARIO = 1.50
+MAT_ROL_FIDUCIARIO = 0.50
 
 def send_email(subject, body):
     try:
@@ -55,15 +55,17 @@ if not st.session_state.autenticato:
         password_input = st.text_input("Password", type="password")
         
         if st.button("Accedi"):
+            # Individuiamo la riga corretta dell'utente
             utente_row = df_dip.loc[df_dip['Nome'] == nome_utente]
-            # Usiamo la colonna E (indice 4) per la password
-            password_corretta = str(utente_row.iloc[0]['Password']).replace('.0', '').strip()
-            # Usiamo la colonna F (indice 5) per il primo accesso
-            primo_acc = str(utente_row.iloc[0]['PrimoAccesso']).upper()
             
-            if str(password_input).strip() == password_corretta:
+            # Pulizia dati (gestione numeri .0 e spazi)
+            password_db = str(utente_row.iloc[0]['Password']).replace('.0', '').strip()
+            primo_acc = str(utente_row.iloc[0]['PrimoAccesso']).strip().upper()
+            
+            if str(password_input).strip() == password_db:
                 st.session_state.utente_loggato = nome_utente
-                if primo_acc == 'TRUE' or primo_acc == '1':
+                # Se è TRUE (o True), obblighiamo al cambio
+                if primo_acc in ['TRUE', 'SÌ', '1']:
                     st.session_state.cambio_obbligatorio = True
                     st.rerun()
                 else:
@@ -74,54 +76,50 @@ if not st.session_state.autenticato:
     
     else:
         st.subheader("🔒 Cambio Password Obbligatorio")
+        st.info(f"Ciao {st.session_state.utente_loggato}, per sicurezza devi impostare una nuova password.")
         new_pass = st.text_input("Nuova Password", type="password")
-        confirm_pass = st.text_input("Conferma Password", type="password")
+        confirm_pass = st.text_input("Conferma Nuova Password", type="password")
         
         if st.button("Salva e Accedi"):
             if new_pass == confirm_pass and len(new_pass) >= 5:
-                # Aggiornamento dati locale
-                df_dip.loc[df_dip['Nome'] == st.session_state.utente_loggato, 'Password'] = new_pass
-                df_dip.loc[df_dip['Nome'] == st.session_state.utente_loggato, 'PrimoAccesso'] = 'FALSE'
-                # Scrittura su Google Sheets
-                conn.update(worksheet="Dipendenti", data=df_dip)
-                st.success("✅ Password aggiornata!")
-                st.session_state.cambio_obbligatorio = False
-                st.session_state.autenticato = True
-                st.rerun()
+                # Aggiornamento locale e su Google Sheets
+                idx = df_dip.index[df_dip['Nome'] == st.session_state.utente_loggato].tolist()[0]
+                df_dip.at[idx, 'Password'] = new_pass
+                df_dip.at[idx, 'PrimoAccesso'] = 'FALSE'
+                
+                try:
+                    conn.update(worksheet="Dipendenti", data=df_dip)
+                    st.success("✅ Password aggiornata con successo!")
+                    st.session_state.cambio_obbligatorio = False
+                    st.session_state.autenticato = True
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Errore nel salvataggio su Google Sheets: {e}")
             else:
-                st.error("❌ Le password non coincidono o sono troppo corte (min 5 car).")
+                st.error("❌ Le password non coincidono o sono troppo corte (min. 5 caratteri).")
 
 else:
-    # --- INTERFACCIA UTENTE LOGGATO ---
-    st.sidebar.info(f"Utente: {st.session_state.utente_loggato}")
-    if st.sidebar.button("Log-out"):
+    # --- INTERFACCIA PER UTENTI LOGGATI ---
+    st.sidebar.success(f"Connesso: {st.session_state.utente_loggato}")
+    if st.sidebar.button("Esci"):
         st.session_state.autenticato = False
         st.rerun()
 
-    menu = ["I miei Saldi", "Nuova Richiesta", "Gestione Admin"]
-    choice = st.sidebar.selectbox("Menu", menu)
-
-    dati_utente = df_dip[df_dip['Nome'] == st.session_state.utente_loggato]
+    menu = ["I miei Saldi", "Nuova Richiesta", "Area Admin"]
+    choice = st.sidebar.selectbox("Cosa vuoi fare?", menu)
 
     if choice == "I miei Saldi":
-        st.header(f"Saldi di {st.session_state.utente_loggato}")
+        st.header(f"Situazione Ferie/ROL")
+        dati_utente = df_dip[df_dip['Nome'] == st.session_state.utente_loggato]
         st.table(dati_utente[['Ferie', 'ROL']])
 
     elif choice == "Nuova Richiesta":
-        st.header("Invia Richiesta")
-        with st.form("req"):
-            tipo = st.radio("Tipo", ["Ferie", "ROL", "Permesso"])
-            inizio = st.date_input("Inizio")
-            fine = st.date_input("Fine")
-            submit = st.form_submit_button("Invia")
-            if submit:
-                # Qui aggiungeremo la logica per salvare la richiesta nel foglio
-                st.info("Funzione di salvataggio richiesta in arrivo...")
+        st.header("Compila la richiesta")
+        st.write("Funzione in fase di test...")
 
-    elif choice == "Gestione Admin":
+    elif choice == "Area Admin":
         if st.session_state.utente_loggato == "Lorenzo Rossini":
-            st.header("Area Admin")
+            st.header("Pannello di Controllo")
             st.dataframe(df_dip)
-            # Qui aggiungeremo il tasto Reset Password per i dipendenti
         else:
-            st.error("Accesso negato.")
+            st.error("Spiacente, solo Lorenzo può vedere questa sezione.")
