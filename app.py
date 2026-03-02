@@ -60,29 +60,28 @@ if not st.session_state.autenticato:
         st.title("🔑 Cambio Password Obbligatorio")
         st.warning(f"Ciao {st.session_state.utente_loggato}, imposta una nuova password.")
         
-        # Uso di nomi variabili univoci per evitare NameError
-        nuova_pw = st.text_input("Nuova Password (min. 5 caratteri)", type="password")
-        conferma_pw = st.text_input("Conferma Nuova Password", type="password")
+        # Variabili rinominate per chiarezza totale
+        nuova_p = st.text_input("Nuova Password (min. 5 caratteri)", type="password")
+        conf_p = st.text_input("Conferma Nuova Password", type="password")
         
-        if st.button("Salva e Accedi al Portale"):
-            # CORREZIONE: Controllo esatto sulle variabili appena create
-            if nuova_pw == conferma_pw and len(nuova_pw) >= 5:
+        if st.button("Salva e Accedi"):
+            # CORREZIONE NameError: controllo esatto sulle variabili appena create
+            if nuova_p == conf_p and len(nuova_p) >= 5:
                 idx_u = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
-                df_dip.at[idx_u, 'Password'] = nuova_pw
+                df_dip.at[idx_u, 'Password'] = nuova_p
                 df_dip.at[idx_u, 'PrimoAccesso'] = 'FALSE'
                 
                 conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
                 st.session_state.cambio_obbligatorio = False
                 st.session_state.autenticato = True
-                st.success("✅ Password aggiornata!")
                 st.rerun()
             else:
-                st.error("❌ Le password non coincidono o sono troppo brevi.")
+                st.error("❌ Controlla che le password coincidano e siano lunghe almeno 5 caratteri.")
         st.stop()
 
     st.title("🛡️ Accesso Portale BTV")
-    nomi_lista = sorted(df_dip['Nome_Display'].unique())
-    u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + nomi_lista)
+    nomi_l = sorted(df_dip['Nome_Display'].unique())
+    u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + nomi_l)
     p_in = st.text_input("PASSWORD", type="password")
     
     if st.button("Accedi"):
@@ -90,8 +89,9 @@ if not st.session_state.autenticato:
             idx = df_dip[df_dip['Nome_Display'] == u_scelto].index[0]
             row = df_dip.iloc[idx]
             pw_db = str(row['Password']).split('.')[0].strip()
+            
             if str(p_in).strip() == pw_db:
-                # Salviamo il nome come stringa pulita per evitare AttributeError: 'Series' object has no attribute 'upper'
+                # CORREZIONE AttributeError: forziamo il nome a essere una stringa pulita
                 st.session_state.utente_loggato = str(row['Nome_Display'])
                 
                 if str(row['PrimoAccesso']).strip().upper() in ['1', '1.0', 'TRUE', 'SÌ']:
@@ -105,16 +105,16 @@ if not st.session_state.autenticato:
 
 else:
     # --- 5. AREA UTENTE E MENU ---
-    # Conversione forzata a stringa per sicurezza prima di usare .upper()
-    nome_per_sidebar = str(st.session_state.utente_loggato)
-    st.sidebar.success(f"👤 {nome_per_sidebar}")
+    # Recupero sicuro del nome come stringa
+    nome_utente = str(st.session_state.utente_loggato)
+    st.sidebar.success(f"👤 {nome_utente}")
     
-    menu = ["I miei Saldi", "Invia Richiesta"]
-    # Controllo Admin risolto: ora nome_per_sidebar è certamente una stringa
-    if "ROSSINI" in nome_per_sidebar.upper():
-        menu.append("Pannello Admin")
+    opzioni_m = ["I miei Saldi", "Invia Richiesta"]
+    # Controllo Admin: ora nome_utente è una stringa e .upper() funzionerà sempre
+    if "ROSSINI" in nome_utente.upper():
+        opzioni_m.append("Pannello Admin")
     
-    choice = st.sidebar.selectbox("Navigazione", menu)
+    scelta_menu = st.sidebar.selectbox("Navigazione", opzioni_m)
     
     if st.sidebar.button("Logout / Esci"):
         st.session_state.autenticato = False
