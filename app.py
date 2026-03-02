@@ -55,13 +55,15 @@ except Exception as e:
     st.stop()
 
 # --- 4. LOGICA ACCESSO E SICUREZZA ---
+placeholder = st.empty() # Crea uno spazio pulito per evitare lo schermo bianco
+
 if not st.session_state.autenticato:
     if st.session_state.cambio_obbligatorio:
-        # Questo blocco DEVE apparire da solo
-        st.title("🔑 Cambio Password Obbligatorio")
-        st.warning(f"Ciao {st.session_state.utente_loggato}, imposta una nuova password per continuare.")
-        
-        with st.container():
+        with placeholder.container():
+            st.title("🔑 Cambio Password Obbligatorio")
+            st.warning(f"Ciao {st.session_state.utente_loggato}, imposta una nuova password.")
+            
+            # Variabili pulite per evitare NameError
             nuova_p = st.text_input("Nuova Password (min. 5 caratteri)", type="password")
             conf_p = st.text_input("Conferma Nuova Password", type="password")
             
@@ -71,55 +73,54 @@ if not st.session_state.autenticato:
                     df_dip.at[idx_u, 'Password'] = nuova_p
                     df_dip.at[idx_u, 'PrimoAccesso'] = 'FALSE'
                     
-                    # Salvataggio immediato
                     conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
-                    
                     st.session_state.cambio_obbligatorio = False
                     st.session_state.autenticato = True
-                    st.success("✅ Password aggiornata!")
                     st.rerun()
                 else:
-                    st.error("❌ Le password non coincidono o sono troppo brevi.")
-        
-        # FORZATURA: st.stop() impedisce a Streamlit di mostrare altro sotto
-        st.stop() 
+                    st.error("❌ Password non valide.")
+            st.stop() # Forza la visualizzazione della maschera
 
-    # Se non c'è il cambio obbligatorio, mostra il Login normale
-    st.title("🛡️ Accesso Portale BTV")
-    nomi_l = sorted(df_dip['Nome_Display'].unique())
-    u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + nomi_l)
-    p_in = st.text_input("PASSWORD", type="password")
-    
-    if st.button("Accedi"):
-        if u_scelto != "--- Seleziona ---":
-            idx = df_dip[df_dip['Nome_Display'] == u_scelto].index[0]
-            row = df_dip.iloc[idx]
-            pw_db = str(row['Password']).split('.')[0].strip()
-            
-            if str(p_in).strip() == pw_db:
-                st.session_state.utente_loggato = str(row['Nome_Display'])
+    # Schermata di Login
+    with placeholder.container():
+        st.title("🛡️ Accesso Portale BTV")
+        nomi_l = sorted(df_dip['Nome_Display'].unique())
+        u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + nomi_l)
+        p_in = st.text_input("PASSWORD", type="password")
+        
+        if st.button("Accedi"):
+            if u_scelto != "--- Seleziona ---":
+                idx = df_dip[df_dip['Nome_Display'] == u_scelto].index[0]
+                row = df_dip.iloc[idx]
+                pw_db = str(row['Password']).split('.')[0].strip()
                 
-                # Controllo se è il primo accesso (TRUE, 1 o SÌ)
-                is_primo = str(row['PrimoAccesso']).strip().upper()
-                if is_primo in ['1', '1.0', 'TRUE', 'SÌ', 'VERO']:
-                    st.session_state.cambio_obbligatorio = True
-                    st.rerun()
+                if str(p_in).strip() == pw_db:
+                    # Trasformiamo subito in stringa per evitare AttributeError
+                    st.session_state.utente_loggato = str(row['Nome_Display'])
+                    
+                    is_primo = str(row['PrimoAccesso']).strip().upper()
+                    if is_primo in ['1', '1.0', 'TRUE', 'SÌ', 'VERO']:
+                        st.session_state.cambio_obbligatorio = True
+                        st.rerun()
+                    else:
+                        st.session_state.autenticato = True
+                        st.rerun()
                 else:
-                    st.session_state.autenticato = True
-                    st.rerun()
-            else:
-                st.error("❌ Password errata.")
-    # --- 5. AREA UTENTE E MENU ---
-    # Recupero sicuro del nome come stringa
-    nome_utente = str(st.session_state.utente_loggato)
-    st.sidebar.success(f"👤 {nome_utente}")
+                    st.error("❌ Password errata.")
+    st.stop()
+
+# --- 5. AREA UTENTE E MENU ---
+else:
+    # Recupero sicuro del nome utente
+    nome_u = str(st.session_state.utente_loggato)
+    st.sidebar.success(f"👤 {nome_u}")
     
-    opzioni_m = ["I miei Saldi", "Invia Richiesta"]
-    # Controllo Admin: ora nome_utente è una stringa e .upper() funzionerà sempre
-    if "ROSSINI" in nome_utente.upper():
-        opzioni_m.append("Pannello Admin")
+    menu = ["I miei Saldi", "Invia Richiesta"]
+    # Controllo Admin sicuro
+    if "ROSSINI" in nome_u.upper():
+        menu.append("Pannello Admin")
     
-    scelta_menu = st.sidebar.selectbox("Navigazione", opzioni_m)
+    choice = st.sidebar.selectbox("Navigazione", menu)
     
     if st.sidebar.button("Logout / Esci"):
         st.session_state.autenticato = False
