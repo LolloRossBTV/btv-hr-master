@@ -6,7 +6,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# --- 1. INIZIALIZZAZIONE STATO (Risolve AttributeError) ---
+# --- 1. INIZIALIZZAZIONE STATO ---
 if 'autenticato' not in st.session_state:
     st.session_state.autenticato = False
 if 'utente_loggato' not in st.session_state:
@@ -14,7 +14,7 @@ if 'utente_loggato' not in st.session_state:
 if 'cambio_obbligatorio' not in st.session_state:
     st.session_state.cambio_obbligatorio = False
 
-# --- 2. CONFIGURAZIONE & EMAIL ---
+# --- 2. CONFIGURAZIONE EMAIL ---
 def send_email(subject, body):
     try:
         msg = MIMEMultipart()
@@ -52,12 +52,9 @@ if not st.session_state.autenticato:
         
         if st.button("Accedi"):
             utente_row = df_dip.loc[df_dip['Nome'] == nome_utente]
-            
-            # Pulizia password e controllo PrimoAccesso (per Bozzi e altri)
             password_db = str(utente_row.iloc[0]['Password']).replace('.0', '').strip()
             valore_primo_acc = str(utente_row.iloc[0]['PrimoAccesso']).strip().upper()
             
-            # Riconosce TRUE, VERO, SÌ, 1 o 1.0 (checkbox di Google)
             is_primo_accesso = valore_primo_acc in ['TRUE', 'SÌ', '1', 'VERO', '1.0']
             
             if str(password_input).strip() == password_db:
@@ -79,11 +76,9 @@ if not st.session_state.autenticato:
         
         if st.button("Salva e Accedi"):
             if new_pass == confirm_pass and len(new_pass) >= 5:
-                # Trova riga e aggiorna
                 idx = df_dip.index[df_dip['Nome'] == st.session_state.utente_loggato].tolist()[0]
                 df_dip.at[idx, 'Password'] = new_pass
                 df_dip.at[idx, 'PrimoAccesso'] = 'FALSE'
-                
                 try:
                     conn.update(worksheet="Dipendenti", data=df_dip)
                     st.success("✅ Password aggiornata!")
@@ -91,7 +86,7 @@ if not st.session_state.autenticato:
                     st.session_state.autenticato = True
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Errore salvataggio Google: {e}")
+                    st.error(f"Errore salvataggio: {e}")
             else:
                 st.error("❌ Password non valide (min. 5 car).")
 
@@ -103,7 +98,7 @@ else:
         st.rerun()
 
     menu = ["I miei Saldi", "Invia Richiesta", "Gestione Admin"]
-    choice = st.sidebar.selectbox("Menu", menu)
+    choice = st.sidebar.selectbox("Cosa vuoi fare?", menu)
 
     if choice == "I miei Saldi":
         st.header(f"Saldi di {st.session_state.utente_loggato}")
@@ -111,41 +106,31 @@ else:
         st.table(dati_u[['Ferie', 'ROL']])
 
     elif choice == "Invia Richiesta":
-        st.header("Compila la richiesta")
-        st.info("Funzione in arrivo...")
+        st.header("Nuova Richiesta")
+        st.info("Funzione di invio ferie in fase di test...")
 
-
-elif choice == "Gestione Admin":
-        # Controllo flessibile: trasforma tutto in maiuscolo per evitare errori
-        utente_attuale = st.session_state.utente_loggato.upper()
-        
-        if "LORENZO" in utente_attuale and "ROSSINI" in utente_attuale:
+    elif choice == "Gestione Admin":
+        # Controllo Admin flessibile per ROSSINI LORENZO o Lorenzo Rossini
+        u_log = st.session_state.utente_loggato.upper()
+        if "LORENZO" in u_log and "ROSSINI" in u_log:
             st.header("🛠️ Pannello di Controllo Admin")
-            
-            # Visualizzazione tabella generale
             st.subheader("Riepilogo Dipendenti")
             st.dataframe(df_dip)
             
             st.divider()
+            st.subheader("🔐 Reset Password")
+            lista_dip = [n for n in df_dip['Nome'].tolist() if "ROSSINI" not in n.upper()]
+            dip_da_res = st.selectbox("Seleziona Dipendente", lista_dip)
             
-            # --- FUNZIONE RESET PASSWORD ---
-            st.subheader("🔐 Reset Password Dipendente")
-            st.write("Riporta la password a '12345' con obbligo di cambio.")
-            
-            # Seleziona il dipendente escludendo se stessi
-            lista_dipendenti = [n for n in df_dip['Nome'].tolist() if "ROSSINI" not in n.upper()]
-            dip_da_resettare = st.selectbox("Seleziona Dipendente", lista_dipendenti)
-            
-            if st.button("Esegui Reset Password"):
-                idx_res = df_dip.index[df_dip['Nome'] == dip_da_resettare].tolist()[0]
+            if st.button("Esegui Reset a 12345"):
+                idx_res = df_dip.index[df_dip['Nome'] == dip_da_res].tolist()[0]
                 df_dip.at[idx_res, 'Password'] = '12345'
                 df_dip.at[idx_res, 'PrimoAccesso'] = 'TRUE'
-                
                 try:
                     conn.update(worksheet="Dipendenti", data=df_dip)
-                    st.success(f"✅ Reset completato per {dip_da_resettare}!")
+                    st.success(f"✅ Reset completato per {dip_da_res}!")
                     st.balloons()
                 except Exception as e:
                     st.error(f"Errore: {e}")
         else:
-            st.error(f"⛔ Accesso negato. Il sistema ti riconosce come '{st.session_state.utente_loggato}', che non ha permessi admin.")
+            st.error("⛔ Accesso negato. Solo Lorenzo Rossini può entrare qui.")
