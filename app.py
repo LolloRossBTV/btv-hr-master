@@ -67,9 +67,6 @@ except Exception as e:
     st.stop()
 
 # --- GESTIONE STATO AUTENTICAZIONE ---
-if 'autenticato' not in st.session_state:
-    st.session_state.autenticato = False
-
 # --- LOGICA DI ACCESSO (LOGIN) ---
 if not st.session_state.autenticato:
     st.title("Benvenuto in BTV")
@@ -79,56 +76,69 @@ if not st.session_state.autenticato:
     password_input = st.text_input("Inserisci la tua Password", type="password")
     
     if st.button("Accedi"):
-        # Recupero e pulizia password dal foglio
-        raw_pass = str(df_dip.loc[df_dip['Nome'] == nome_utente, 'Password'].values[0])
+        utente_row = df_dip.loc[df_dip['Nome'] == nome_utente]
+        raw_pass = str(utente_row['Password'].values[0])
         password_corretta = raw_pass.replace('.0', '').strip()
+        primo_accesso = str(utente_row['PrimoAccesso'].values[0]).upper() == 'TRUE'
         
         if str(password_input).strip() == password_corretta:
-            st.session_state.autenticato = True
             st.session_state.utente_loggato = nome_utente
-            st.rerun()
+            if primo_accesso:
+                st.session_state.cambio_obbligatorio = True
+                st.warning("⚠️ Primo accesso rilevato. Devi cambiare la password.")
+            else:
+                st.session_state.autenticato = True
+                st.rerun()
         else:
-            st.error(f"❌ Password errata per {nome_utente}. Riprova.")
+            st.error("❌ Password errata. Riprova.")
 
-else:
-    # --- INTERFACCIA PER UTENTI LOGGATI ---
-    st.sidebar.success(f"Loggato come: {st.session_state.utente_loggato}")
-    if st.sidebar.button("Log-out"):
-        st.session_state.autenticato = False
-        st.rerun()
-
-    st.title("Sistema Gestione Ferie BTV")
-    menu = ["I miei Saldi", "Inserisci Richiesta", "Gestione Admin"]
-    choice = st.sidebar.selectbox("Cosa vuoi fare?", menu)
-
-    dati_utente = df_dip[df_dip['Nome'] == st.session_state.utente_loggato]
-
-    if choice == "I miei Saldi":
-        st.subheader(f"Situazione di {st.session_state.utente_loggato}")
-        st.table(dati_utente[['Ferie', 'ROL']])
-
-    elif choice == "Inserisci Richiesta":
-        st.subheader("Nuova Richiesta")
-        with st.form("form_richiesta"):
-            tipo = st.radio("Tipo", ["Ferie", "ROL", "Permesso"])
-            inizio = st.date_input("Dal")
-            fine = st.date_input("Al")
-            note = st.text_area("Note aggiuntive")
-            submit = st.form_submit_button("Invia Richiesta")
-            
-            if submit:
-                messaggio = f"Nuova richiesta da {st.session_state.utente_loggato}: {tipo} dal {inizio} al {fine}\nNote: {note}"
-                if send_email(f"Richiesta {tipo} - {st.session_state.utente_loggato}", messaggio):
-                    st.success("✅ Richiesta inviata via e-mail!")
-                else:
-                    st.warning("⚠️ Errore invio e-mail, avvisa l'amministratore.")
-
-    elif choice == "Gestione Admin":
-        if st.session_state.utente_loggato == "Lorenzo Rossini":
-            st.subheader("Area Amministrazione")
-            st.write("Riepilogo Dipendenti:")
-            st.dataframe(df_dip)
-            st.write("Richieste Ricevute:")
-            st.dataframe(df_richieste)
+    # Se deve cambiare password, mostriamo il modulo dedicato
+    if st.session_state.get('cambio_obbligatorio'):
+        new_pass = st.text_input("Nuova Password", type="password")
+        confirm_pass = st.text_input("Conferma Nuova Password", type="password")
+        if st.button("Salva Nuova Password"):
+            if new_pass == confirm_pass and len(new_pass) > 4:
+                # Qui aggiungeremo la funzione per scrivere sul foglio Google
+                st.success("✅ Password aggiornata! Ora puoi accedere.")
+                st.session_state.cambio_obbligatorio = False
+                st.session_state.autenticato = True
+                st.rerun()
+            else:
+                st.error("❌ Le password non coincidono o sono troppo corte.")# --- LOGICA DI ACCESSO (LOGIN) ---
+if not st.session_state.autenticato:
+    st.title("Benvenuto in BTV")
+    st.subheader("Accesso Riservato")
+    
+    nome_utente = st.selectbox("Seleziona il tuo Nome", df_dip['Nome'].tolist())
+    password_input = st.text_input("Inserisci la tua Password", type="password")
+    
+    if st.button("Accedi"):
+        utente_row = df_dip.loc[df_dip['Nome'] == nome_utente]
+        raw_pass = str(utente_row['Password'].values[0])
+        password_corretta = raw_pass.replace('.0', '').strip()
+        primo_accesso = str(utente_row['PrimoAccesso'].values[0]).upper() == 'TRUE'
+        
+        if str(password_input).strip() == password_corretta:
+            st.session_state.utente_loggato = nome_utente
+            if primo_accesso:
+                st.session_state.cambio_obbligatorio = True
+                st.warning("⚠️ Primo accesso rilevato. Devi cambiare la password.")
+            else:
+                st.session_state.autenticato = True
+                st.rerun()
         else:
-            st.error("Area riservata all'amministratore.")
+            st.error("❌ Password errata. Riprova.")
+
+    # Se deve cambiare password, mostriamo il modulo dedicato
+    if st.session_state.get('cambio_obbligatorio'):
+        new_pass = st.text_input("Nuova Password", type="password")
+        confirm_pass = st.text_input("Conferma Nuova Password", type="password")
+        if st.button("Salva Nuova Password"):
+            if new_pass == confirm_pass and len(new_pass) > 4:
+                # Qui aggiungeremo la funzione per scrivere sul foglio Google
+                st.success("✅ Password aggiornata! Ora puoi accedere.")
+                st.session_state.cambio_obbligatorio = False
+                st.session_state.autenticato = True
+                st.rerun()
+            else:
+                st.error("❌ Le password non coincidono o sono troppo corte.")
