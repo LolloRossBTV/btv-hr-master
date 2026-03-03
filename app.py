@@ -108,11 +108,10 @@ if scelta == "I miei Saldi":
 
     elif scelta == "Invia Richiesta":
         st.header("📩 Modulo Invio Richiesta")
-        
         try:
             df_richieste = conn.read(worksheet="Richieste", ttl=0)
             df_limiti = conn.read(worksheet="LimitiMensili", ttl=0)
-        except:
+        except Exception as e:
             st.error("⚠️ Verifica che esistano i fogli 'Richieste' e 'LimitiMensili' su Google Sheets")
             st.stop()
 
@@ -157,9 +156,8 @@ if scelta == "I miei Saldi":
 
     elif scelta == "Pannello Admin":
         st.header("⚙️ Pannello di Controllo Amministratore")
-
         st.subheader("🔍 Interroga Saldi Dipendente")
-        u_search = st.selectbox("Seleziona una risorsa", ["--- Seleziona ---"] + sorted(df_dip['Nome_Display'].unique()))
+        u_search = st.selectbox("Seleziona risorsa", ["--- Seleziona ---"] + sorted(df_dip['Nome_Display'].unique()))
         
         if u_search != "--- Seleziona ---":
             dati_u = df_dip[df_dip['Nome_Display'] == u_search].iloc[0]
@@ -167,44 +165,43 @@ if scelta == "I miei Saldi":
             with c1: st.metric("Ferie", f"{dati_u['Ferie']} gg")
             with c2: st.metric("ROL", f"{dati_u['ROL']} ore")
             with c3: st.metric("Contratto", dati_u['Contratto'])
-            st.divider()
-
-        tabs = st.tabs(["🔄 Reset Password", "➕ Nuova Risorsa", "🗑️ Elimina Risorsa", "📅 Limiti Mensili", "📊 Database"])
+        
+        st.divider()
+        tabs = st.tabs(["🔄 Reset Password", "➕ Nuova Risorsa", "🗑️ Elimina", "📅 Limiti Mensili", "📊 Database"])
 
         with tabs[0]:
-            u_res = st.selectbox("Reset password per:", sorted(df_dip['Nome_Display'].unique()), key="res_admin")
+            u_res = st.selectbox("Reset per:", sorted(df_dip['Nome_Display'].unique()), key="res_admin")
             if st.button("Esegui Reset"):
                 idx = df_dip[df_dip['Nome_Display'] == u_res].index[0]
-                df_dip.at[idx, 'Password'] = "12345"
-                df_dip.at[idx, 'PrimoAccesso'] = "1"
+                df_dip.at[idx, 'Password'] = "12345"; df_dip.at[idx, 'PrimoAccesso'] = "1"
                 conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
-                st.success("Reset effettuato!")
-                st.rerun()
+                st.success("Resettato!"); st.rerun()
 
         with tabs[1]:
             with st.form("add_user"):
                 n_nome = st.text_input("Nome").upper()
-                n_contratto = st.selectbox("Contratto", ["Fiduciario", "Armato", "Amministrativo"])
+                n_contr = st.selectbox("Contratto", ["Fiduciario", "Armato", "Amministrativo"])
                 if st.form_submit_button("Salva"):
-                    nuovo = {"Nome": n_nome, "Password": "12345", "Ferie": 0, "ROL": 0, "Contratto": n_contratto, "PrimoAccesso": "1"}
-                    df_nuovo = pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo])], ignore_index=True)
-                    conn.update(worksheet="Dipendenti", data=df_nuovo)
-                    st.success("Aggiunto!")
-                    st.rerun()
+                    nuovo = {"Nome": n_nome, "Password": "12345", "Ferie": 0, "ROL": 0, "Contratto": n_contr, "PrimoAccesso": "1"}
+                    df_n = pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo])], ignore_index=True)
+                    conn.update(worksheet="Dipendenti", data=df_n)
+                    st.success("Aggiunto!"); st.rerun()
 
         with tabs[2]:
             u_del = st.selectbox("Elimina:", ["---"] + sorted(df_dip['Nome_Display'].unique()), key="del_admin")
-            if st.button("Conferma Eliminazione", type="primary"):
+            if st.button("Conferma", type="primary"):
                 df_f = df_dip[df_dip['Nome_Display'] != u_del].drop(columns=['Nome_Display'])
                 conn.update(worksheet="Dipendenti", data=df_f)
                 st.rerun()
 
         with tabs[3]:
-            df_limiti = conn.read(worksheet="LimitiMensili", ttl=0)
-            ed_lim = st.data_editor(df_limiti, hide_index=True)
-            if st.button("Salva Limiti"):
-                conn.update(worksheet="LimitiMensili", data=ed_lim)
-                st.success("Salvati!")
+            try:
+                df_lim = conn.read(worksheet="LimitiMensili", ttl=0)
+                ed_lim = st.data_editor(df_lim, hide_index=True)
+                if st.button("Salva Limiti"):
+                    conn.update(worksheet="LimitiMensili", data=ed_lim)
+                    st.success("Salvati!")
+            except: st.error("Crea foglio 'LimitiMensili'")
 
         with tabs[4]:
             st.dataframe(df_dip.drop(columns=['Nome_Display']), use_container_width=True)
