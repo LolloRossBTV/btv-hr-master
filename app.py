@@ -99,7 +99,6 @@ if not st.session_state.autenticato:
                 else:
                     st.error("❌ Password errata")
     st.stop() # Non disegnare il resto dell'app se non sei autenticato
-
 # --- 5. AREA PRIVATA ---
 else:
     nome_u = str(st.session_state.utente_loggato)
