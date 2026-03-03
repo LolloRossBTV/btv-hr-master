@@ -44,61 +44,68 @@ except Exception as e:
     st.error(f"❌ Errore Database: {e}")
     st.stop()
 
-# --- 4. ACCESSO E SICUREZZA ---
+# --- 4. ACCESSO E SICUREZZA (VERSIONE OBBLIGATORIA) ---
 if not st.session_state.autenticato:
-    # CASO A: L'utente ha inserito le credenziali ma DEVE cambiare password
+    
+    # FASE 2: SE IL LOGIN È OK MA DEVE CAMBIARE PASSWORD
     if st.session_state.cambio_obbligatorio:
         st.title("🔑 Cambio Password Obbligatorio")
-        st.warning(f"Profilo: {st.session_state.utente_loggato}")
-        st.write("Imposta una nuova password per attivare il tuo account.")
+        st.warning(f"Benvenuto {st.session_state.utente_loggato}. Prima di consultare i tuoi saldi, devi cambiare la password.")
         
-        nuova_p = st.text_input("Nuova Password (min. 5 car.)", type="password", key="n_p")
-        conf_p = st.text_input("Conferma Nuova Password", type="password", key="c_p")
+        n_p = st.text_input("Inserisci Nuova Password (min. 5 car.)", type="password", key="new_p")
+        c_p = st.text_input("Conferma Nuova Password", type="password", key="conf_p")
         
-        if st.button("Aggiorna Password e Accedi"):
-            if nuova_p == conf_p and len(nuova_p) >= 5:
+        if st.button("Salva Nuova Password"):
+            if n_p == c_p and len(n_p) >= 5:
+                # 1. Trova l'indice nel database
                 idx = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
-                df_dip.at[idx, 'Password'] = nuova_p
+                # 2. Aggiorna i dati sul DataFrame
+                df_dip.at[idx, 'Password'] = n_p
                 df_dip.at[idx, 'PrimoAccesso'] = 'FALSE'
-                
-                # Scriviamo su Google Sheets
+                # 3. Invia l'aggiornamento a Google Sheets
                 conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
                 
-                # Solo ORA diamo l'accesso
+                # 4. Sblocca l'accesso e resetta lo stato
                 st.session_state.cambio_obbligatorio = False
                 st.session_state.autenticato = True
-                st.success("✅ Password salvata!")
+                st.success("✅ Password salvata! Ora puoi accedere.")
                 st.rerun()
             else:
-                st.error("❌ Password non valide o troppo brevi.")
-        st.stop() # BLOCCA l'accesso ai saldi
+                st.error("❌ Le password non coincidono o sono troppo brevi.")
+        
+        # BLOCCO DI SICUREZZA: se è in questa fase, NON può leggere altro
+        st.stop()
 
-    # CASO B: Schermata di Login Standard
+    # FASE 1: LOGIN STANDARD
     st.title("🛡️ Accesso Portale BTV")
-    u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + sorted(df_dip['Nome_Display'].unique()))
+    u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona il tuo nome ---"] + sorted(df_dip['Nome_Display'].unique()))
     p_in = st.text_input("PASSWORD", type="password")
     
-    if st.button("Entra"):
-        if u_scelto != "--- Seleziona ---":
+    if st.button("Verifica Credenziali"):
+        if u_scelto != "--- Seleziona il tuo nome ---":
             idx = df_dip[df_dip['Nome_Display'] == u_scelto].index[0]
             row = df_dip.iloc[idx]
             pw_db = str(row['Password']).split('.')[0].strip()
             
             if str(p_in).strip() == pw_db:
+                # Salviamo l'identità
                 st.session_state.utente_loggato = str(row['Nome_Display'])
                 
-                # Verifichiamo il primo accesso
+                # Verifichiamo se è il primo accesso (se TRUE -> Cambio obbligatorio)
                 is_primo = str(row['PrimoAccesso']).strip().upper()
                 if is_primo in ['1', '1.0', 'TRUE', 'SÌ', 'VERO']:
                     st.session_state.cambio_obbligatorio = True
-                    # NON impostiamo autenticato = True qui!
+                    # IMPORTANTE: NON mettiamo autenticato=True qui!
                     st.rerun()
                 else:
+                    # Se non è il primo accesso, entra normalmente
                     st.session_state.autenticato = True
                     st.rerun()
             else:
                 st.error("❌ Password errata")
-    st.stop() # Impedisce di vedere i saldi se non si è loggati correttamente
+    
+    # Impedisce la visualizzazione dei saldi a chi non ha superato i controlli sopra
+    st.stop()
 # --- 5. AREA PRIVATA ---
 else:
     nome_u = str(st.session_state.utente_loggato)
