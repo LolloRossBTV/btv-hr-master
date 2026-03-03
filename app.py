@@ -107,23 +107,60 @@ else:
         st.header("Situazione Saldi")
         st.table(df_dip[df_dip['Nome_Display'] == nome_u][['Ferie', 'ROL', 'Contratto']])
 
-    elif scelta == "Invia Richiesta":
-        st.header("Nuova Richiesta")
-        with st.form("form_richiesta"):
-            # MENU PULITO (Senza Malattia e Recupero)
-            tipo = st.selectbox("Causale", ["Ferie", "ROL (Permesso Orario)", "Legge 104", "Congedo Parentale"])
-            date = st.date_input("Seleziona Date", value=())
-            note = st.text_area("Note aggiuntive")
-            if st.form_submit_button("Invia ai Responsabili"):
-                if len(date) >= 1:
-                    testo_d = f"Dal {date[0]} al {date[1]}" if len(date)==2 else f"Giorno {date[0]}"
-                    corpo = f"Dipendente: {nome_u}\nTipo: {tipo}\nPeriodo: {testo_d}\nNote: {note}"
-                    if send_email(f"RICHIESTA {tipo.upper()} - {nome_u}", corpo):
-                        st.success("✅ Inviata correttamente!")
-                        st.balloons()
-                else:
-                    st.error("⚠️ Seleziona le date!")
+   elif scelta == "Invia Richiesta":
+        st.header("📩 Modulo Invio Richiesta")
+        
+        # Carichiamo i dati per il controllo (Assicurati che i fogli esistano su GSheets)
+        try:
+            df_richieste = conn.read(worksheet="Richieste", ttl=0)
+            df_limiti = conn.read(worksheet="LimitiMensili", ttl=0)
+        except:
+            st.error("⚠️ Errore: Verifica che esistano i fogli 'Richieste' e 'LimitiMensili' su Google Sheets")
+            st.stop()
 
+        with st.form("form_richiesta", clear_on_submit=True):
+            tipo = st.selectbox("Causale", ["Ferie", "ROL (Permesso Orario)", "Legge 104", "Congedo Parentale"])
+            data_scelta = st.date_input("Seleziona Giorno", value=None)
+            note = st.text_area("Note aggiuntive")
+            
+            if st.form_submit_button("Verifica e Invia"):
+                if data_scelta:
+                    # 1. Recupero Limite del Mese dal foglio LimitiMensili
+                    mesi_it = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
+                    nome_mese = mesi_it[data_scelta.month - 1]
+                    riga_lim = df_limiti[df_limiti['Mese'] == nome_mese]
+                    limite_max = int(riga_lim['Limite'].values[0]) if not riga_lim.empty else 3
+
+                    # 2. Conteggio persone già prenotate per quel giorno (solo Ferie/ROL)
+                    occupati = df_richieste[
+                        (df_richieste['Periodo'].astype(str) == str(data_scelta)) & 
+                        (df_richieste['Tipo'].isin(["Ferie", "ROL (Permesso Orario)"]))
+                    ].shape[0]
+
+                    # 3. Logica di blocco (eccezione per 104 e Congedi)
+                    is_tutelata = tipo in ["Legge 104", "Congedo Parentale"]
+
+                    if not is_tutelata and occupati >= limite_max:
+                        st.error("❌ **Richiesta non accordata**")
+                        st.warning(f"Spiacente, per il giorno {data_scelta} sono già presenti {occupati} richieste.")
+                    else:
+                        # REGISTRAZIONE SU GOOGLE SHEETS
+                        nuova_r = pd.DataFrame([{
+                            "Data_Richiesta": pd.Timestamp.now().strftime("%d/%m/%Y"),
+                            "Nome": nome_u,
+                            "Tipo": tipo,
+                            "Periodo": str(data_scelta),
+                            "Note": note
+                        }])
+                        conn.update(worksheet="Richieste", data=pd.concat([df_richieste, nuova_r], ignore_index=True))
+                        
+                        # INVIO EMAIL
+                        corpo_mail = f"Dipendente: {nome_u}\nTipo: {tipo}\nGiorno: {data_scelta}\nNote: {note}"
+                        if send_email(f"RICHIESTA {tipo.upper()} - {nome_u}", corpo_mail):
+                            st.success("✅ Richiesta Accordata e Inviata!")
+                            st.balloons()
+                else:
+                    st.error("⚠️ Seleziona una data!")
     elif scelta == "Pannello Admin":
         st.header("⚙️ Pannello di Controllo Amministratore")
 
