@@ -110,12 +110,12 @@ else:
    elif scelta == "Invia Richiesta":
         st.header("📩 Modulo Invio Richiesta")
         
-        # Carichiamo i dati per il controllo (Assicurati che i fogli esistano su GSheets)
+        # Carichiamo i dati necessari
         try:
             df_richieste = conn.read(worksheet="Richieste", ttl=0)
             df_limiti = conn.read(worksheet="LimitiMensili", ttl=0)
         except:
-            st.error("⚠️ Errore: Verifica che esistano i fogli 'Richieste' e 'LimitiMensili' su Google Sheets")
+            st.error("⚠️ Verifica i fogli 'Richieste' e 'LimitiMensili' su Google Sheets")
             st.stop()
 
         with st.form("form_richiesta", clear_on_submit=True):
@@ -125,6 +125,42 @@ else:
             
             if st.form_submit_button("Verifica e Invia"):
                 if data_scelta:
+                    # 1. Recupero Limite del Mese
+                    mesi_it = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
+                    nome_mese = mesi_it[data_scelta.month - 1]
+                    riga_lim = df_limiti[df_limiti['Mese'] == nome_mese]
+                    limite_max = int(riga_lim['Limite'].values[0]) if not riga_lim.empty else 3
+
+                    # 2. Conteggio assenze già presenti
+                    occupati = df_richieste[
+                        (df_richieste['Periodo'].astype(str) == str(data_scelta)) & 
+                        (df_richieste['Tipo'].isin(["Ferie", "ROL (Permesso Orario)"]))
+                    ].shape[0]
+
+                    # 3. Controllo 104/Congedi
+                    is_tutelata = tipo in ["Legge 104", "Congedo Parentale"]
+
+                    if not is_tutelata and occupati >= limite_max:
+                        st.error("❌ **Richiesta non accordata**")
+                        st.warning(f"Limite di {limite_max} persone raggiunto per il giorno {data_scelta}.")
+                    else:
+                        # REGISTRAZIONE
+                        nuova_r = pd.DataFrame([{
+                            "Data_Richiesta": pd.Timestamp.now().strftime("%d/%m/%Y"),
+                            "Nome": nome_u,
+                            "Tipo": tipo,
+                            "Periodo": str(data_scelta),
+                            "Note": note
+                        }])
+                        conn.update(worksheet="Richieste", data=pd.concat([df_richieste, nuova_r], ignore_index=True))
+                        
+                        # INVIO EMAIL
+                        corpo_m = f"Dipendente: {nome_u}\nTipo: {tipo}\nGiorno: {data_scelta}\nNote: {note}"
+                        if send_email(f"RICHIESTA {tipo.upper()} - {nome_u}", corpo_m):
+                            st.success("✅ Richiesta Accordata e Inviata!")
+                            st.balloons()
+                else:
+                    st.error("⚠️ Seleziona una data!")
                     # 1. Recupero Limite del Mese dal foglio LimitiMensili
                     mesi_it = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
                     nome_mese = mesi_it[data_scelta.month - 1]
