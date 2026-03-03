@@ -125,61 +125,65 @@ else:
                     st.error("⚠️ Seleziona le date!")
 
     elif scelta == "Pannello Admin":
-        # CANCELLA QUELLO CHE C'È QUI E INCOLLA:
-        st.header("⚙️ Gestione Personale e Database")
+        st.header("⚙️ Pannello di Controllo Amministratore")
+
+        # --- 1. FUNZIONE DI RICERCA / INTERROGAZIONE SALDI ---
+        st.subheader("🔍 Interroga Saldi Dipendente")
+        u_search = st.selectbox("Seleziona una risorsa per visualizzare i dettagli", 
+                                ["--- Seleziona ---"] + sorted(df_dip['Nome_Display'].unique()))
         
-        # 1. Visualizzazione Tabella Completa
-        st.subheader("Anagrafica Dipendenti")
-        st.dataframe(df_dip.drop(columns=['Nome_Display']), use_container_width=True)
-        
-        st.divider()
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # 2. Reset Utente (Password e Primo Accesso)
-            st.subheader("🔄 Reset Utente")
-            u_reset = st.selectbox("Seleziona Dipendente da resettare", sorted(df_dip['Nome_Display'].unique()))
-            if st.button("Forza Cambio Password"):
-                idx = df_dip[df_dip['Nome_Display'] == u_reset].index[0]
+        if u_search != "--- Seleziona ---":
+            dati_u = df_dip[df_dip['Nome_Display'] == u_search].iloc[0]
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Ferie Residue", f"{dati_u['Ferie']} gg")
+            with c2:
+                st.metric("ROL Residui", f"{dati_u['ROL']} ore")
+            with c3:
+                st.metric("Contratto", dati_u['Contratto'])
+            
+            st.divider()
+
+        # --- 2. GESTIONE OPERATIVA (Al posto della tabella) ---
+        tabs = st.tabs(["🔄 Reset Password", "➕ Nuova Risorsa", "🗑️ Elimina Risorsa", "📊 Tabella Completa"])
+
+        with tabs[0]: # RESET
+            st.write("Riporta la password di un dipendente a '12345' e forza il cambio al primo accesso.")
+            u_res = st.selectbox("Dipendente da resettare", sorted(df_dip['Nome_Display'].unique()), key="res_admin")
+            if st.button("Esegui Reset Ora"):
+                idx = df_dip[df_dip['Nome_Display'] == u_res].index[0]
                 df_dip.at[idx, 'Password'] = "12345"
                 df_dip.at[idx, 'PrimoAccesso'] = "1"
                 conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
-                st.success(f"✅ {u_reset} resettato! Password provvisoria: 12345")
+                st.success(f"✅ Reset completato per {u_res}")
                 st.rerun()
 
-        with col2:
-            # 3. Eliminazione Dipendente
-            st.subheader("🗑️ Elimina Risorsa")
-            u_del = st.selectbox("Seleziona chi rimuovere", ["---"] + sorted(df_dip['Nome_Display'].unique()))
+        with tabs[1]: # AGGIUNGI
+            with st.form("add_user"):
+                n_nome = st.text_input("Nome e Cognome").upper()
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    n_contratto = st.selectbox("Tipo Contratto", ["Fiduciario", "Armato", "Amministrativo"])
+                    n_ferie = st.number_input("Ferie", value=0)
+                with col_b:
+                    n_rol = st.number_input("ROL", value=0)
+                if st.form_submit_button("Salva nel Database"):
+                    if n_nome:
+                        nuovo_rigo = {"Nome": n_nome, "Password": "12345", "Ferie": n_ferie, "ROL": n_rol, "Contratto": n_contratto, "PrimoAccesso": "1"}
+                        df_nuovo = pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo_rigo])], ignore_index=True)
+                        conn.update(worksheet="Dipendenti", data=df_nuovo)
+                        st.success(f"✅ {n_nome} aggiunto!")
+                        st.rerun()
+
+        with tabs[2]: # ELIMINA
+            u_del = st.selectbox("Rimuovi dipendente", ["---"] + sorted(df_dip['Nome_Display'].unique()), key="del_admin")
             if st.button("Elimina Definitivamente", type="primary"):
                 if u_del != "---":
                     df_final = df_dip[df_dip['Nome_Display'] != u_del].drop(columns=['Nome_Display'])
                     conn.update(worksheet="Dipendenti", data=df_final)
-                    st.warning(f"Utente {u_del} rimosso.")
+                    st.warning(f"Rimosso {u_del}")
                     st.rerun()
 
-        st.divider()
-        
-        # 4. Aggiunta Nuovo Dipendente
-        st.subheader("➕ Aggiungi Nuova Risorsa")
-        with st.form("nuovo_utente"):
-            n_nome = st.text_input("Nome e Cognome (es: BIANCHI MARIO)").upper()
-            n_contratto = st.selectbox("Contratto", ["Fiduciario", "Armato", "Amministrativo"])
-            n_ferie = st.number_input("Ferie Iniziali", value=0)
-            n_rol = st.number_input("ROL Iniziali", value=0)
-            
-            if st.form_submit_button("Salva nel Database"):
-                if n_nome:
-                    nuovo_rigo = {
-                        "Nome": n_nome,
-                        "Password": "12345",
-                        "Ferie": n_ferie,
-                        "ROL": n_rol,
-                        "Contratto": n_contratto,
-                        "PrimoAccesso": "1"
-                    }
-                    df_nuovo = pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo_rigo])], ignore_index=True)
-                    conn.update(worksheet="Dipendenti", data=df_nuovo)
-                    st.success(f"✅ {n_nome} aggiunto con password 12345")
-                    st.rerun()
+        with tabs[3]: # TABELLA (Nascosta di default)
+            st.write("Visualizzazione rapida di tutto il database:")
+            st.dataframe(df_dip.drop(columns=['Nome_Display']), use_container_width=True)
