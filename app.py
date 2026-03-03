@@ -44,49 +44,49 @@ except Exception as e:
     st.error(f"❌ Errore Database: {e}")
     st.stop()
 
-# --- 4. ACCESSO E SICUREZZA (RESET SESSIONE) ---
+# --- 4. ACCESSO E SICUREZZA (VERSIONE RESET) ---
 
-# Se per errore l'utente è autenticato ma deve ancora cambiare password, forziamo il logout
-if st.session_state.autenticato and st.session_state.cambio_obbligatorio:
+# TRAPPOLA DI SICUREZZA: Se l'utente prova ad accedere ai saldi 
+# ma ha ancora il flag del cambio obbligatorio, forziamo il logout.
+if st.session_state.cambio_obbligatorio and st.session_state.autenticato:
     st.session_state.autenticato = False
+    st.rerun()
 
 if not st.session_state.autenticato:
     
-    # FASE 2: IL MURO DEL CAMBIO PASSWORD
+    # SEZIONE CAMBIO PASSWORD
     if st.session_state.cambio_obbligatorio:
         st.title("🔑 CAMBIO PASSWORD OBBLIGATORIO")
-        st.error(f"ATTENZIONE: {st.session_state.utente_loggato}, devi cambiare la password ora.")
+        st.error(f"Attenzione {st.session_state.utente_loggato}, devi impostare una nuova password.")
         
-        with st.container():
-            n_p = st.text_input("Scegli Nuova Password (min. 5 car.)", type="password", key="new_p_final")
-            c_p = st.text_input("Conferma Nuova Password", type="password", key="conf_p_final")
-            
-            if st.button("SALVA E ATTIVA ACCOUNT"):
-                if n_p == c_p and len(n_p) >= 5:
-                    # Aggiornamento Database
-                    idx = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
-                    df_dip.at[idx, 'Password'] = n_p
-                    df_dip.at[idx, 'PrimoAccesso'] = 'FALSE'
-                    
-                    conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
-                    
-                    # Solo dopo il salvataggio su foglio, permettiamo l'accesso
-                    st.session_state.cambio_obbligatorio = False
-                    st.session_state.autenticato = True
-                    st.success("✅ Profilo attivato! Reindirizzamento...")
-                    st.rerun()
-                else:
-                    st.error("❌ Password non valide o troppo brevi.")
+        # Campi con chiavi nuove per resettare il browser
+        n_p_new = st.text_input("Nuova Password", type="password", key="np_final_reset")
+        c_p_new = st.text_input("Conferma Password", type="password", key="cp_final_reset")
         
-        # QUESTO STOP È IL VERO MURO: impedisce di leggere i saldi sotto
-        st.stop()
+        if st.button("Salva e Attiva Account"):
+            if n_p_new == c_p_new and len(n_p_new) >= 5:
+                # Aggiornamento Database Google Sheets
+                idx = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
+                df_dip.at[idx, 'Password'] = n_p_new
+                df_dip.at[idx, 'PrimoAccesso'] = 'FALSE'
+                
+                conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
+                
+                # ORA resettiamo i flag per permettere l'accesso
+                st.session_state.cambio_obbligatorio = False
+                st.session_state.autenticato = True
+                st.success("✅ Password aggiornata! Ora verrai reindirizzato.")
+                st.rerun()
+            else:
+                st.error("❌ Le password non coincidono o sono troppo brevi.")
+        st.stop() # Impedisce di scendere ai saldi
 
-    # FASE 1: SCHERMATA DI LOGIN
-    st.title("🛡️ Accesso Portale BTV")
+    # SCHERMATA LOGIN
+    st.title("🛡️ Accesso BTV")
     u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + sorted(df_dip['Nome_Display'].unique()))
     p_in = st.text_input("PASSWORD ATTUALE", type="password")
     
-    if st.button("ACCEDI"):
+    if st.button("Accedi"):
         if u_scelto != "--- Seleziona ---":
             idx = df_dip[df_dip['Nome_Display'] == u_scelto].index[0]
             row = df_dip.iloc[idx]
@@ -95,18 +95,16 @@ if not st.session_state.autenticato:
             if str(p_in).strip() == pw_db:
                 st.session_state.utente_loggato = str(row['Nome_Display'])
                 
-                # Controllo rigoroso del valore nel foglio Google
-                stato_primo = str(row['PrimoAccesso']).strip().upper()
-                if stato_primo in ['1', '1.0', 'TRUE', 'SÌ', 'VERO']:
+                # Verifichiamo il valore nel foglio Google
+                stato = str(row['PrimoAccesso']).strip().upper()
+                if stato in ['1', '1.0', 'TRUE', 'SÌ', 'VERO']:
                     st.session_state.cambio_obbligatorio = True
-                    st.session_state.autenticato = False # Sicurezza extra
+                    st.session_state.autenticato = False # Resta fuori dai saldi!
                 else:
                     st.session_state.autenticato = True
                 st.rerun()
             else:
                 st.error("❌ Password errata")
-    
-    # Impedisce la visualizzazione dei saldi a chiunque arrivi qui
     st.stop()
 # --- 5. AREA PRIVATA ---
 else:
