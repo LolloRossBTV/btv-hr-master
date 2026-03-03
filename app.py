@@ -44,49 +44,33 @@ except Exception as e:
     st.error(f"❌ Errore Database: {e}")
     st.stop()
 
-# --- 4. ACCESSO E SICUREZZA (VERSIONE RESET) ---
-
-# TRAPPOLA DI SICUREZZA: Se l'utente prova ad accedere ai saldi 
-# ma ha ancora il flag del cambio obbligatorio, forziamo il logout.
-if st.session_state.cambio_obbligatorio and st.session_state.autenticato:
-    st.session_state.autenticato = False
-    st.rerun()
-
+# --- 4. ACCESSO E SICUREZZA ---
 if not st.session_state.autenticato:
-    
-    # SEZIONE CAMBIO PASSWORD
     if st.session_state.cambio_obbligatorio:
-        st.title("🔑 CAMBIO PASSWORD OBBLIGATORIO")
-        st.error(f"Attenzione {st.session_state.utente_loggato}, devi impostare una nuova password.")
+        st.title("🔑 Cambio Password Obbligatorio")
+        st.warning(f"Profilo: {st.session_state.utente_loggato}")
         
-        # Campi con chiavi nuove per resettare il browser
-        n_p_new = st.text_input("Nuova Password", type="password", key="np_final_reset")
-        c_p_new = st.text_input("Conferma Password", type="password", key="cp_final_reset")
+        n_p = st.text_input("Nuova Password (min. 5 car.)", type="password", key="np_new")
+        c_p = st.text_input("Conferma Password", type="password", key="cp_new")
         
-        if st.button("Salva e Attiva Account"):
-            if n_p_new == c_p_new and len(n_p_new) >= 5:
-                # Aggiornamento Database Google Sheets
+        if st.button("Salva e Accedi"):
+            if n_p == c_p and len(n_p) >= 5:
                 idx = df_dip[df_dip['Nome_Display'] == st.session_state.utente_loggato].index[0]
-                df_dip.at[idx, 'Password'] = n_p_new
-                df_dip.at[idx, 'PrimoAccesso'] = 'FALSE'
-                
+                df_dip.at[idx, 'Password'] = n_p
+                df_dip.at[idx, 'PrimoAccesso'] = 'FALSE' # Scrive FALSE per i prossimi accessi
                 conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
-                
-                # ORA resettiamo i flag per permettere l'accesso
                 st.session_state.cambio_obbligatorio = False
                 st.session_state.autenticato = True
-                st.success("✅ Password aggiornata! Ora verrai reindirizzato.")
                 st.rerun()
             else:
-                st.error("❌ Le password non coincidono o sono troppo brevi.")
-        st.stop() # Impedisce di scendere ai saldi
+                st.error("❌ Password non valide.")
+        st.stop()
 
-    # SCHERMATA LOGIN
     st.title("🛡️ Accesso BTV")
     u_scelto = st.selectbox("DIPENDENTE", ["--- Seleziona ---"] + sorted(df_dip['Nome_Display'].unique()))
-    p_in = st.text_input("PASSWORD ATTUALE", type="password")
+    p_in = st.text_input("PASSWORD", type="password")
     
-    if st.button("Accedi"):
+    if st.button("Entra"):
         if u_scelto != "--- Seleziona ---":
             idx = df_dip[df_dip['Nome_Display'] == u_scelto].index[0]
             row = df_dip.iloc[idx]
@@ -95,11 +79,10 @@ if not st.session_state.autenticato:
             if str(p_in).strip() == pw_db:
                 st.session_state.utente_loggato = str(row['Nome_Display'])
                 
-                # Verifichiamo il valore nel foglio Google
-                stato = str(row['PrimoAccesso']).strip().upper()
-                if stato in ['1', '1.0', 'TRUE', 'SÌ', 'VERO']:
+                # CORREZIONE: Legge 1, 1.0 o TRUE come primo accesso
+                valore_primo = str(row['PrimoAccesso']).strip().upper()
+                if valore_primo in ['1', '1.0', 'TRUE', 'SÌ']:
                     st.session_state.cambio_obbligatorio = True
-                    st.session_state.autenticato = False # Resta fuori dai saldi!
                 else:
                     st.session_state.autenticato = True
                 st.rerun()
@@ -142,5 +125,61 @@ else:
                     st.error("⚠️ Seleziona le date!")
 
     elif scelta == "Pannello Admin":
-        st.header("⚙️ Amministrazione")
-        st.dataframe(df_dip.drop(columns=['Nome_Display']))
+        # CANCELLA QUELLO CHE C'È QUI E INCOLLA:
+        st.header("⚙️ Gestione Personale e Database")
+        
+        # 1. Visualizzazione Tabella Completa
+        st.subheader("Anagrafica Dipendenti")
+        st.dataframe(df_dip.drop(columns=['Nome_Display']), use_container_width=True)
+        
+        st.divider()
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # 2. Reset Utente (Password e Primo Accesso)
+            st.subheader("🔄 Reset Utente")
+            u_reset = st.selectbox("Seleziona Dipendente da resettare", sorted(df_dip['Nome_Display'].unique()))
+            if st.button("Forza Cambio Password"):
+                idx = df_dip[df_dip['Nome_Display'] == u_reset].index[0]
+                df_dip.at[idx, 'Password'] = "12345"
+                df_dip.at[idx, 'PrimoAccesso'] = "1"
+                conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
+                st.success(f"✅ {u_reset} resettato! Password provvisoria: 12345")
+                st.rerun()
+
+        with col2:
+            # 3. Eliminazione Dipendente
+            st.subheader("🗑️ Elimina Risorsa")
+            u_del = st.selectbox("Seleziona chi rimuovere", ["---"] + sorted(df_dip['Nome_Display'].unique()))
+            if st.button("Elimina Definitivamente", type="primary"):
+                if u_del != "---":
+                    df_final = df_dip[df_dip['Nome_Display'] != u_del].drop(columns=['Nome_Display'])
+                    conn.update(worksheet="Dipendenti", data=df_final)
+                    st.warning(f"Utente {u_del} rimosso.")
+                    st.rerun()
+
+        st.divider()
+        
+        # 4. Aggiunta Nuovo Dipendente
+        st.subheader("➕ Aggiungi Nuova Risorsa")
+        with st.form("nuovo_utente"):
+            n_nome = st.text_input("Nome e Cognome (es: BIANCHI MARIO)").upper()
+            n_contratto = st.selectbox("Contratto", ["Fiduciario", "Armato", "Amministrativo"])
+            n_ferie = st.number_input("Ferie Iniziali", value=0)
+            n_rol = st.number_input("ROL Iniziali", value=0)
+            
+            if st.form_submit_button("Salva nel Database"):
+                if n_nome:
+                    nuovo_rigo = {
+                        "Nome": n_nome,
+                        "Password": "12345",
+                        "Ferie": n_ferie,
+                        "ROL": n_rol,
+                        "Contratto": n_contratto,
+                        "PrimoAccesso": "1"
+                    }
+                    df_nuovo = pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo_rigo])], ignore_index=True)
+                    conn.update(worksheet="Dipendenti", data=df_nuovo)
+                    st.success(f"✅ {n_nome} aggiunto con password 12345")
+                    st.rerun()
