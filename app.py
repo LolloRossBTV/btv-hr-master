@@ -102,7 +102,7 @@ else:
     if st.sidebar.button("Logout"):
         st.session_state.autenticato = False
         st.rerun()
-# --- 5. AREA PRIVATA (Incolla da qui fino in fondo) ---
+# --- 5. AREA PRIVATA (Sostituisci integralmente da qui alla fine) ---
     else:
         nome_u = str(st.session_state.utente_loggato)
         st.sidebar.success(f"👤 {nome_u}")
@@ -121,63 +121,83 @@ else:
         if "Saldi" in scelta:
             st.header("📊 La tua situazione")
             dati_u = df_dip[df_dip['Nome_Display'] == nome_u].iloc[0]
-            
             c1, c2, c3 = st.columns(3)
             c1.metric("Ferie residue", f"{dati_u['Ferie']} gg")
             c2.metric("ROL residui", f"{dati_u['ROL']} ore")
             c3.metric("Tipo Contratto", dati_u['Contratto'])
             st.divider()
 
-        # --- SEZIONE INVIO RICHIESTA ---
+        # --- SEZIONE INVIO RICHIESTA (GESTIONE PERIODO) ---
         elif "Richiesta" in scelta:
-            st.header("📩 Nuovo Inserimento")
+            st.header("📩 Inserisci Richiesta Periodo")
             try:
-                # Usiamo ttl="1m" per evitare l'errore Quota Exceeded (429)
+                # Lettura con protezione quota Google
                 df_richieste = conn.read(worksheet="Richieste", ttl="1m")
                 df_limiti = conn.read(worksheet="Limiti_Mensili", ttl="1m")
             except Exception as e:
-                st.error(f"⚠️ Errore Database: {e}. Aspetta 60 secondi e riprova.")
+                st.error("⚠️ Errore connessione. Aspetta un minuto e riprova.")
                 st.stop()
 
-            with st.form("form_richiesta", clear_on_submit=True):
-                tipo = st.selectbox("Causale", ["Ferie", "ROL (Permesso Orario)", "Legge 104", "Congedo Parentale"])
-                data_scelta = st.date_input("Seleziona Giorno", value=None)
+            with st.form("form_periodo", clear_on_submit=True):
+                tipo = st.selectbox("Causale", ["Ferie", "ROL", "Legge 104", "Congedo Parentale"])
+                
+                # Input per INTERVALLO di date
+                periodo_scelto = st.date_input("Seleziona il periodo (clicca data inizio e data fine)", value=(), help="Seleziona due date per definire l'intervallo")
                 note = st.text_area("Note aggiuntive")
                 
-                if st.form_submit_button("🚀 Verifica e Invia"):
-                    if data_scelta:
-                        # Mesi in minuscolo come nel tuo foglio GSheets
-                        mesi_it = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
-                        nome_mese = mesi_it[data_scelta.month - 1]
+                if st.form_submit_button("🚀 Verifica Disponibilità e Invia"):
+                    if len(periodo_scelto) == 2:
+                        data_inizio, data_fine = periodo_scelto
+                        # Generiamo la lista di tutti i giorni nel periodo scelto
+                        giorni_richiesti = pd.date_range(start=data_inizio, end=data_fine)
                         
-                        riga_lim = df_limiti[df_limiti['Mese'] == nome_mese]
-                        lim_max = int(riga_lim['Limite'].values[0]) if not riga_lim.empty else 3
+                        errore_limite = False
+                        giorno_pieno = ""
+                        mesi_it = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
 
-                        occupati = df_richieste[
-                            (df_richieste['Periodo'].astype(str) == str(data_scelta)) & 
-                            (df_richieste['Tipo'].isin(["Ferie", "ROL (Permesso Orario)"]))
-                        ].shape[0]
-
-                        if tipo not in ["Legge 104", "Congedo Parentale"] and occupati >= lim_max:
-                            st.error(f"❌ Limite di {lim_max} persone raggiunto per il {data_scelta.strftime('%d/%m/%Y')}.")
+                        # Ciclo di controllo per ogni giorno del periodo
+                        for giorno in giorni_richiesti:
+                            nome_mese = mesi_it[giorno.month - 1]
+                            # Prendi limite per quel mese
+                            riga_lim = df_limiti[df_limiti['Mese'] == nome_mese]
+                            lim_max = int(riga_lim['Limite'].values[0]) if not riga_lim.empty else 3
+                            
+                            # Conta quanti hanno già ferie/ROL in quel giorno specifico
+                            occupati = df_richieste[df_richieste['Periodo'].astype(str) == str(giorno.date())].shape[0]
+                            
+                            if tipo in ["Ferie", "ROL"] and occupati >= lim_max:
+                                errore_limite = True
+                                giorno_pieno = giorno.strftime('%d/%m/%Y')
+                                break
+                        
+                        if errore_limite:
+                            st.error(f"❌ Impossibile inviare: il giorno **{giorno_pieno}** ha già raggiunto il limite massimo di assenze.")
                         else:
-                            nuova_r = pd.DataFrame([{
-                                "Data_Richiesta": pd.Timestamp.now().strftime("%d/%m/%Y"), 
-                                "Nome": nome_u, "Tipo": tipo, "Periodo": str(data_scelta), "Note": note
-                            }])
-                            conn.update(worksheet="Richieste", data=pd.concat([df_richieste, nuova_r], ignore_index=True))
-                            st.success("✅ Richiesta Accordata e Salvata!")
+                            # Salvataggio: creiamo una riga per ogni giorno (più facile per i calcoli futuri)
+                            nuove_righe = []
+                            for giorno in giorni_richiesti:
+                                nuove_righe.append({
+                                    "Data_Richiesta": pd.Timestamp.now().strftime("%d/%m/%Y"),
+                                    "Nome": nome_u,
+                                    "Tipo": tipo,
+                                    "Periodo": str(giorno.date()),
+                                    "Note": f"Periodo: {data_inizio} al {data_fine}. Note: {note}"
+                                })
+                            
+                            df_aggiornato = pd.concat([df_richieste, pd.DataFrame(nuove_righe)], ignore_index=True)
+                            conn.update(worksheet="Richieste", data=df_aggiornato)
+                            st.success(f"✅ Richiesta per {len(giorni_richiesti)} giorni inviata con successo!")
                             st.balloons()
                     else:
-                        st.error("⚠️ Per favore, seleziona una data!")
+                        st.warning("⚠️ Per favore, seleziona sia la data di inizio che quella di fine sul calendario.")
 
         # --- PANNELLO ADMIN ---
         elif "Admin" in scelta:
-            st.header("⚙️ Gestione Aziendale")
+            st.header("⚙️ Pannello Amministratore")
             t1, t2, t3 = st.tabs(["📅 LIMITI MENSILI", "👥 PERSONALE", "📊 DATABASE"])
 
             with t1:
-                st.subheader("Configurazione Limiti (Simpatica)")
+                st.subheader("Modifica Soglie Assenze")
                 try:
                     df_l = conn.read(worksheet="Limiti_Mensili", ttl=0)
                     nuovi_v = {}
@@ -195,12 +215,13 @@ else:
                     st.error("⚠️ Foglio 'Limiti_Mensili' non trovato!")
 
             with t2:
-                st.write("**Rimuovi Dipendente**")
+                st.write("**Elimina Dipendente**")
                 u_del = st.selectbox("Seleziona chi eliminare:", ["---"] + sorted(df_dip['Nome_Display'].unique()))
-                if u_del != "---" and st.button("ELIMINA DEFINITIVAMENTE"):
+                if u_del != "---" and st.button("ELIMINA DEFINITIVAMENTE", type="primary"):
                     df_p = df_dip[df_dip['Nome_Display'] != u_del].drop(columns=['Nome_Display'])
                     conn.update(worksheet="Dipendenti", data=df_p)
                     st.success(f"{u_del} rimosso!"); st.rerun()
 
             with t3:
-                st.dataframe(df_dip.drop(columns=['Nome_Display']), use_container_width=True)
+                st.write("### Storico Richieste nel Database")
+                st.dataframe(df_richieste, use_container_width=True)
