@@ -156,9 +156,10 @@ else:
                 else:
                     st.error("⚠️ Seleziona una data!")
 
-   elif scelta == "Pannello Admin":
+  elif scelta == "Pannello Admin":
         st.header("⚙️ Pannello di Controllo Amministratore")
         
+        # 1. Ricerca Rapida
         u_search = st.selectbox("Cerca dipendente", ["--- Seleziona ---"] + sorted(df_dip['Nome_Display'].unique()))
         if u_search != "--- Seleziona ---":
             dati_u = df_dip[df_dip['Nome_Display'] == u_search].iloc[0]
@@ -168,50 +169,60 @@ else:
             with c3: st.metric("Contratto", dati_u['Contratto'])
         
         st.divider()
-        # Creazione dei Tab con allineamento garantito
-        t_res, t_add, t_del, t_lim, t_db = st.tabs(["🔄 Reset", "➕ Nuova Risorsa", "🗑️ Elimina", "📅 Limiti Mensili", "📊 Database"])
+        t_lim, t_res, t_add, t_del, t_db = st.tabs(["📅 IMPOSTA LIMITI", "🔄 Reset", "➕ Nuovo", "🗑️ Elimina", "📊 Database"])
 
-        with t_res: 
-            u_res = st.selectbox("Dipendente da resettare", sorted(df_dip['Nome_Display'].unique()), key="res_admin")
-            if st.button("Reset Password a '12345'"):
-                idx = df_dip[df_dip['Nome_Display'] == u_res].index[0]
-                df_dip.at[idx, 'Password'] = "12345"
-                df_dip.at[idx, 'PrimoAccesso'] = "1"
-                conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
-                st.success("✅ Reset effettuato!"); st.rerun()
-
-        with t_add: 
-            with st.form("nuovo_utente"):
-                n_nome = st.text_input("Nome e Cognome").upper()
-                n_contr = st.selectbox("Contratto", ["Fiduciario", "Armato", "Amministrativo"])
-                if st.form_submit_button("Salva nel Database"):
-                    nuovo = {"Nome": n_nome, "Password": "12345", "Ferie": 0, "ROL": 0, "Contratto": n_contr, "PrimoAccesso": "1"}
-                    df_n = pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo])], ignore_index=True)
-                    conn.update(worksheet="Dipendenti", data=df_n)
-                    st.success("✅ Aggiunto!"); st.rerun()
-
-        with t_del: 
-            u_del = st.selectbox("Dipendente da rimuovere", ["---"] + sorted(df_dip['Nome_Display'].unique()), key="del_admin")
-            if st.button("ELIMINA ORA", type="primary"):
-                df_f = df_dip[df_dip['Nome_Display'] != u_del].drop(columns=['Nome_Display'])
-                conn.update(worksheet="Dipendenti", data=df_f)
-                st.success("✅ Eliminato!"); st.rerun()
-
-        with t_lim: 
-            st.info("Fai doppio clic sul numero, modificalo, premi **Invio** e poi clicca Salva.")
+        with t_lim:
+            st.subheader("Configurazione Limiti Mensili")
+            st.write("Sposta i cursori per decidere quante persone possono stare a casa contemporaneamente.")
+            
             try:
                 df_lim = conn.read(worksheet="LimitiMensili", ttl=0)
-                # Forza i numeri a essere interi
-                df_lim['Limite'] = pd.to_numeric(df_lim['Limite']).astype(int)
+                nuovi_valori = {}
                 
-                ed_lim = st.data_editor(df_lim, hide_index=True, use_container_width=True)
+                # Creiamo 3 colonne per rendere la vista più compatta e simpatica
+                col1, col2, col3 = st.columns(3)
+                mesi = df_lim['Mese'].tolist()
                 
-                if st.button("💾 Salva Nuovi Limiti"):
-                    conn.update(worksheet="LimitiMensili", data=ed_lim)
-                    st.success("✅ Limiti aggiornati con successo!")
+                for i, mese in enumerate(mesi):
+                    attuale = int(df_lim.loc[df_lim['Mese'] == mese, 'Limite'].values[0])
+                    # Scegliamo in quale colonna mettere il selettore
+                    target_col = [col1, col2, col3][i % 3]
+                    with target_col:
+                        nuovi_valori[mese] = st.number_input(f"{mese}", min_value=1, max_value=10, value=attuale, key=f"lim_{mese}")
+
+                if st.button("🚀 SALVA TUTTI I LIMITI", use_container_width=True, type="primary"):
+                    # Trasformiamo il dizionario in DataFrame per l'invio
+                    df_aggiornato = pd.DataFrame(list(nuovi_valori.items()), columns=['Mese', 'Limite'])
+                    conn.update(worksheet="LimitiMensili", data=df_aggiornato)
+                    st.success("✅ Limiti salvati correttamente!")
                     st.rerun()
             except:
-                st.error("⚠️ Crea un foglio chiamato 'LimitiMensili' con colonne 'Mese' e 'Limite'")
+                st.error("⚠️ Errore caricamento foglio 'LimitiMensili'")
 
-        with t_db: 
+        with t_res:
+            u_res = st.selectbox("Dipendente da resettare", sorted(df_dip['Nome_Display'].unique()), key="res_admin")
+            if st.button("Reset Password"):
+                idx = df_dip[df_dip['Nome_Display'] == u_res].index[0]
+                df_dip.at[idx, 'Password'] = "12345"; df_dip.at[idx, 'PrimoAccesso'] = "1"
+                conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
+                st.success("Resettato!"); st.rerun()
+
+        with t_add:
+            with st.form("add"):
+                n = st.text_input("Nome").upper()
+                c = st.selectbox("Contratto", ["Fiduciario", "Armato", "Amministrativo"])
+                if st.form_submit_button("Salva"):
+                    nuovo = {"Nome": n, "Password": "12345", "Ferie": 0, "ROL": 0, "Contratto": c, "PrimoAccesso": "1"}
+                    df_n = pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo])], ignore_index=True)
+                    conn.update(worksheet="Dipendenti", data=df_n)
+                    st.success("Aggiunto!"); st.rerun()
+
+        with t_del:
+            u_del = st.selectbox("Elimina dipendente", ["---"] + sorted(df_dip['Nome_Display'].unique()))
+            if st.button("ELIMINA", type="primary"):
+                df_f = df_dip[df_dip['Nome_Display'] != u_del].drop(columns=['Nome_Display'])
+                conn.update(worksheet="Dipendenti", data=df_f)
+                st.rerun()
+
+        with t_db:
             st.dataframe(df_dip.drop(columns=['Nome_Display']), use_container_width=True)
