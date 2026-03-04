@@ -102,130 +102,92 @@ else:
     if st.sidebar.button("Logout"):
         st.session_state.autenticato = False
         st.rerun()
-# --- 5. AREA PRIVATA (Sostituisci da qui alla fine) ---
+# --- AREA PRIVATA ---
     else:
         nome_u = str(st.session_state.utente_loggato)
         st.sidebar.success(f"👤 {nome_u}")
         
-        # Menu con icone
-        menu = ["📊 I miei Saldi", "📩 Invia Richiesta"]
-        if "ROSSINI" in nome_u.upper():
-            menu.append("⚙️ Pannello Admin")
+        menu = ["📊 Dashboard Saldi", "📩 Invia Richiesta"]
+        if "ROSSINI" in nome_u.upper(): menu.append("⚙️ Pannello Admin")
         
         scelta = st.sidebar.radio("Navigazione", menu)
         
         if st.sidebar.button("Esci / Logout"):
-            st.session_state.autenticato = False
-            st.rerun()
+            st.session_state.autenticato = False; st.rerun()
 
-        # --- SEZIONE SALDI ---
         if "Saldi" in scelta:
             st.header("📊 La tua situazione")
             dati_u = df_dip[df_dip['Nome_Display'] == nome_u].iloc[0]
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Ferie", f"{dati_u['Ferie']} gg")
-            col2.metric("ROL", f"{dati_u['ROL']} ore")
-            col3.metric("Contratto", dati_u['Contratto'])
-            st.divider()
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Ferie", f"{dati_u['Ferie']} gg")
+            c2.metric("ROL", f"{dati_u['ROL']} ore")
+            c3.metric("Contratto", dati_u['Contratto'])
 
-        # --- SEZIONE INVIO RICHIESTA ---
         elif "Richiesta" in scelta:
             st.header("📩 Inserisci una richiesta")
             try:
                 df_richieste = conn.read(worksheet="Richieste", ttl=0)
                 df_limiti = conn.read(worksheet="LimitiMensili", ttl=0)
-            except:
-                st.error("⚠️ Errore critico: Controlla che i fogli 'Richieste' e 'LimitiMensili' esistano su Google Sheets.")
-                st.stop()
-
-            with st.form("form_richiesta", clear_on_submit=True):
-                tipo = st.selectbox("Causale", ["Ferie", "ROL (Permesso Orario)", "Legge 104", "Congedo Parentale"])
-                data_scelta = st.date_input("Seleziona Giorno", value=None)
-                note = st.text_area("Note (opzionale)")
                 
-                if st.form_submit_button("🚀 Verifica e Conferma"):
-                    if data_scelta:
-                        mesi_it = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
-                        nome_mese = mesi_it[data_scelta.month - 1]
-                        
-                        # Controllo Limiti
-                        riga_lim = df_limiti[df_limiti['Mese'] == nome_mese]
-                        limite_max = int(riga_lim['Limite'].values[0]) if not riga_lim.empty else 3
-
-                        occupati = df_richieste[
-                            (df_richieste['Periodo'].astype(str) == str(data_scelta)) & 
-                            (df_richieste['Tipo'].isin(["Ferie", "ROL (Permesso Orario)"]))
-                        ].shape[0]
-
-                        if tipo not in ["Legge 104", "Congedo Parentale"] and occupati >= limite_max:
-                            st.error(f"❌ Limite di {limite_max} persone già raggiunto per questa data!")
-                        else:
-                            nuova_r = pd.DataFrame([{
-                                "Data_Richiesta": pd.Timestamp.now().strftime("%d/%m/%Y"),
-                                "Nome": nome_u, "Tipo": tipo, "Periodo": str(data_scelta), "Note": note
-                            }])
-                            conn.update(worksheet="Richieste", data=pd.concat([df_richieste, nuova_r], ignore_index=True))
+                with st.form("form_invio", clear_on_submit=True):
+                    tipo = st.selectbox("Causale", ["Ferie", "ROL", "Legge 104", "Congedo"])
+                    data_s = st.date_input("Giorno", value=None)
+                    note = st.text_area("Note")
+                    
+                    if st.form_submit_button("🚀 Verifica e Invia"):
+                        if data_s:
+                            mesi_it = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
+                            nome_m = mesi_it[data_s.month - 1]
+                            lim_max = int(df_limiti[df_limiti['Mese'] == nome_m]['Limite'].values[0])
                             
-                            # Invio Email (la funzione deve essere già presente nel tuo file)
-                            corpo_m = f"Dipendente: {nome_u}\nTipo: {tipo}\nGiorno: {data_scelta}\nNote: {note}"
-                            send_email(f"RICHIESTA {tipo.upper()} - {nome_u}", corpo_m)
-                            st.success("✅ Richiesta inviata con successo!"); st.balloons()
-                    else:
-                        st.error("⚠️ Seleziona una data!")
+                            occupati = df_richieste[(df_richieste['Periodo'].astype(str) == str(data_s))].shape[0]
+                            
+                            if occupati >= lim_max:
+                                st.error(f"❌ Limite di {lim_max} persone raggiunto!")
+                            else:
+                                nuova_r = pd.DataFrame([{"Data_Richiesta": pd.Timestamp.now().strftime("%d/%m/%Y"), "Nome": nome_u, "Tipo": tipo, "Periodo": str(data_s), "Note": note}])
+                                conn.update(worksheet="Richieste", data=pd.concat([df_richieste, nuova_r], ignore_index=True))
+                                st.success("✅ Richiesta Inviata!"); st.balloons()
+                        else: st.error("Seleziona una data!")
+            except Exception as e: st.error(f"⚠️ Errore fogli GSheets: {e}")
 
-        # --- PANNELLO ADMIN ---
         elif "Admin" in scelta:
             st.header("⚙️ Pannello Amministratore")
+            t_lim, t_pers, t_db = st.tabs(["📅 LIMITI MENSILI", "👥 PERSONALE", "📊 DATABASE"])
             
-            tab1, tab2, tab3, tab4 = st.tabs(["📅 LIMITI MENSILI", "➕ GESTIONE PERSONALE", "🔄 RESET PASSWORD", "📊 DB COMPLETO"])
-
-            with tab1:
-                st.subheader("Imposta i Limiti Massimi di Assenza")
-                st.info("💡 Qui decidi quante persone possono mancare contemporaneamente ogni mese.")
+            with t_lim:
+                st.subheader("Imposta Limiti Massimi")
                 try:
                     df_lim = conn.read(worksheet="LimitiMensili", ttl=0)
-                    nuovi_valori = {}
+                    nuovi_v = {}
+                    cols = st.columns(3)
+                    for i, mese in enumerate(df_lim['Mese'].tolist()):
+                        curr = int(df_lim.loc[df_lim['Mese'] == mese, 'Limite'].values[0])
+                        with cols[i % 3]:
+                            nuovi_v[mese] = st.number_input(f"{mese}", 1, 10, curr, key=f"l_{mese}")
                     
-                    # Layout a 3 colonne per i mesi (molto più simpatico!)
-                    c1, c2, c3 = st.columns(3)
-                    mesi = df_lim['Mese'].tolist()
-                    for i, mese in enumerate(mesi):
-                        val_attuale = int(df_lim.loc[df_lim['Mese'] == mese, 'Limite'].values[0])
-                        with [c1, c2, c3][i % 3]:
-                            nuovi_valori[mese] = st.number_input(f"Limite {mese}", 1, 10, val_attuale, key=f"lim_{mese}")
-                    
-                    if st.button("💾 SALVA TUTTI I LIMITI", use_container_width=True, type="primary"):
-                        df_agg = pd.DataFrame(list(nuovi_valori.items()), columns=['Mese', 'Limite'])
-                        conn.update(worksheet="LimitiMensili", data=df_agg)
-                        st.success("✅ Limiti aggiornati!"); st.rerun()
-                except:
-                    st.error("⚠️ Assicurati che il foglio 'LimitiMensili' sia presente.")
+                    if st.button("💾 SALVA TUTTI I LIMITI", type="primary", use_container_width=True):
+                        df_up = pd.DataFrame(list(nuovi_v.items()), columns=['Mese', 'Limite'])
+                        conn.update(worksheet="LimitiMensili", data=df_up)
+                        st.success("✅ Salvati!"); st.rerun()
+                except: st.error("Foglio 'LimitiMensili' non trovato su GSheets!")
 
-            with tab2:
-                st.subheader("Aggiungi o Elimina Dipendenti")
-                col_add, col_del = st.columns(2)
-                with col_add:
-                    with st.form("add_user"):
-                        n_n = st.text_input("Nome").upper()
-                        n_c = st.selectbox("Contratto", ["Fiduciario", "Armato", "Amministrativo"])
-                        if st.form_submit_button("Aggiungi"):
-                            nuovo = {"Nome": n_n, "Password": "12345", "Ferie": 0, "ROL": 0, "Contratto": n_c, "PrimoAccesso": "1"}
+            with t_pers:
+                col_a, col_r = st.columns(2)
+                with col_a:
+                    st.write("**Aggiungi Dipendente**")
+                    with st.form("add"):
+                        n = st.text_input("Nome").upper()
+                        if st.form_submit_button("Salva"):
+                            nuovo = {"Nome": n, "Password": "12345", "Ferie": 0, "ROL": 0, "Contratto": "Fiduciario", "PrimoAccesso": "1"}
                             conn.update(worksheet="Dipendenti", data=pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo])], ignore_index=True))
                             st.success("Aggiunto!"); st.rerun()
-                with col_del:
-                    u_del = st.selectbox("Elimina:", ["---"] + sorted(df_dip['Nome_Display'].unique()))
-                    if st.button("CONFERMA ELIMINAZIONE", type="primary"):
-                        conn.update(worksheet="Dipendenti", data=df_dip[df_dip['Nome_Display'] != u_del].drop(columns=['Nome_Display']))
-                        st.success("Eliminato!"); st.rerun()
+                with col_r:
+                    st.write("**Elimina Dipendente**")
+                    u_d = st.selectbox("Chi?", ["---"] + sorted(df_dip['Nome_Display'].unique()))
+                    if st.button("ELIMINA"):
+                        conn.update(worksheet="Dipendenti", data=df_dip[df_dip['Nome_Display'] != u_d].drop(columns=['Nome_Display']))
+                        st.rerun()
 
-            with tab3:
-                u_res = st.selectbox("Reset per:", sorted(df_dip['Nome_Display'].unique()), key="res_p")
-                if st.button("Resetta a '12345'"):
-                    idx = df_dip[df_dip['Nome_Display'] == u_res].index[0]
-                    df_dip.at[idx, 'Password'] = "12345"; df_dip.at[idx, 'PrimoAccesso'] = "1"
-                    conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
-                    st.success("Password Resettata!"); st.rerun()
-
-            with tab4:
+            with t_db:
                 st.dataframe(df_dip.drop(columns=['Nome_Display']), use_container_width=True)
