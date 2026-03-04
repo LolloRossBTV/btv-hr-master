@@ -195,15 +195,21 @@ else:
                 conn.update(worksheet="Dipendenti", data=df_f)
                 st.success("Eliminato!"); st.rerun()
 
-        with tabs[3]: 
+       with tabs[3]: 
+            st.info("💡 **Istruzioni:** Fai doppio clic sul numero, modificalo, premi **Invio** sulla tastiera e poi clicca Salva.")
             try:
+                # Leggiamo il foglio
                 df_lim = conn.read(worksheet="LimitiMensili", ttl=0)
+                
+                # Assicuriamoci che la colonna Limite sia trattata come numero
+                df_lim['Limite'] = pd.to_numeric(df_lim['Limite'], errors='coerce').fillna(3).astype(int)
+                
+                # Mostriamo l'editor
                 ed_lim = st.data_editor(df_lim, hide_index=True, use_container_width=True)
+                
                 if st.button("Salva Nuovi Limiti"):
                     conn.update(worksheet="LimitiMensili", data=ed_lim)
-                    st.success("Limiti aggiornati!")
-            except:
-                st.error("Crea foglio 'LimitiMensili'")
-
-        with tabs[4]: 
-            st.dataframe(df_dip.drop(columns=['Nome_Display']), use_container_width=True)
+                    st.success("✅ Limiti aggiornati con successo!")
+                    st.rerun()  # <--- FONDAMENTALE: Ricarica la pagina per farti vedere i nuovi dati
+            except Exception as e:
+                st.error(f"⚠️ Errore o foglio 'LimitiMensili' mancante. Dettaglio: {e}")
