@@ -99,24 +99,45 @@ else:
 
     # --- NAVIGAZIONE SIDEBAR ---
     st.sidebar.info(f"👤 {st.session_state.utente_loggato}")
-    pagine = ["📊 Dashboard", "📩 Invia Richiesta"]
-    if "ROSSINI" in st.session_state.utente_loggato.upper():
-        pagine.append("⚙️ Admin")
-    
-    scelta = st.sidebar.radio("Vai a:", pagine)
-    
-    if st.sidebar.button("Log-out"):
-        st.session_state.autenticato = False
-        st.rerun()
-
-    # --- PAGINE ---
-    if scelta == "📊 Dashboard":
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Ferie residue", f"{utente_info['Ferie']} gg")
-        c2.metric("ROL residui", f"{utente_info['ROL']} ore")
-        c3.metric("Contratto", utente_info['Contratto'])
-
     elif scelta == "📩 Invia Richiesta":
+        with st.form("richiesta_form"):
+            tipo = st.selectbox("Tipo", ["Ferie", "ROL", "104", "Congedo"])
+            periodo = st.date_input("Date", value=())
+            note = st.text_area("Note")
+            if st.form_submit_button("Invia"):
+                if len(periodo) == 2:
+                    giorni = pd.date_range(start=periodo[0], end=periodo[1])
+                    
+                    # --- CONTROLLO ESENZIONE LIMITI ---
+                    esente = str(utente_info.get('SenzaLimiti', '0')).strip() == "1"
+                    
+                    possibile = True
+                    if not esente:
+                        for g in giorni:
+                            mesi_it = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+                            m_n = mesi_it[g.month - 1]
+                            lim_g = 3
+                            if not df_limiti.empty:
+                                r_l = df_limiti[df_limiti['Mese'].str.lower() == m_n.lower()]
+                                if not r_l.empty: lim_g = int(r_l['Limite'].values[0])
+                            
+                            occ = df_richieste[df_richieste['Periodo'].astype(str) == str(g.date())].shape[0]
+                            if tipo in ["Ferie", "ROL"] and occ >= lim_g:
+                                st.error(f"Giorno {g.date()} completo (Max {lim_g} persone)."); possibile = False; break
+                    
+                    if possibile:
+                        nuove_richieste = []
+                        for g in giorni:
+                            nuove_richieste.append({
+                                "Data_Richiesta": datetime.now().strftime("%d/%m/%Y"),
+                                "Nome": st.session_state.utente_loggato,
+                                "Tipo": tipo,
+                                "Periodo": str(g.date()),
+                                "Note": note
+                            })
+                        conn.update(worksheet="Richieste", data=pd.concat([df_richieste, pd.DataFrame(nuove_richieste)], ignore_index=True))
+                        invia_notifica_email(st.session_state.utente_loggato, tipo, str(periodo), note)
+                        st.success("Richiesta inviata correttamente!"); st.balloons()
         with st.form("richiesta_form"):
             tipo = st.selectbox("Tipo", ["Ferie", "ROL", "104", "Congedo"])
             periodo = st.date_input("Date", value=())
