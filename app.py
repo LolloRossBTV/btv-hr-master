@@ -35,9 +35,11 @@ def invia_notifica_email(utente, tipo, periodo, note):
 # --- CARICAMENTO DATI ---
 try:
     df_dip = conn.read(worksheet="Dipendenti", ttl="0")
-    df_dip['Nome_Display'] = df_dip['Nome'].astype(str).str.upper()
-except:
-    st.error("Errore database. Verifica Google Sheets."); st.stop()
+    # Pulizia nomi e stringhe per evitare errori di confronto
+    df_dip['Nome_Display'] = df_dip['Nome'].astype(str).str.upper().str.strip()
+    df_dip['PrimoAccesso'] = df_dip['PrimoAccesso'].astype(str).str.strip()
+except Exception as e:
+    st.error(f"Errore caricamento database: {e}"); st.stop()
 
 if "autenticato" not in st.session_state: st.session_state.autenticato = False
 if "utente_loggato" not in st.session_state: st.session_state.utente_loggato = None
@@ -47,54 +49,72 @@ st.title("🏥 Sistema Gestione Assenze")
 # --- LOGIN ---
 if not st.session_state.autenticato:
     with st.form("login"):
-        user = st.selectbox("Seleziona Nome", df_dip['Nome_Display'].tolist())
+        user_list = df_dip['Nome_Display'].tolist()
+        user = st.selectbox("Seleziona Nome", user_list)
         pw = st.text_input("Password", type="password")
         if st.form_submit_button("ENTRA"):
-            val = df_dip[(df_dip['Nome_Display'] == user) & (df_dip['Password'].astype(str) == pw)]
+            # Confronto robusto per la password
+            val = df_dip[(df_dip['Nome_Display'] == user) & (df_dip['Password'].astype(str).str.strip() == str(pw).strip())]
             if not val.empty:
                 st.session_state.autenticato = True
-                st.session_state.utente_loggato = user; st.rerun()
-            else: st.error("Password errata!")
+                st.session_state.utente_loggato = user
+                st.rerun()
+            else: 
+                st.error("Password errata!")
 
 # --- AREA RISERVATA ---
 else:
     nome_u = st.session_state.utente_loggato
     dati_u = df_dip[df_dip['Nome_Display'] == nome_u].iloc[0]
 
-    # --- CONTROLLO CAMBIO PASSWORD OBBLIGATORIO ---
-    if str(dati_u['PrimoAccesso']) == "1":
-        st.warning(f"👋 Ciao {nome_u}! Per motivi di sicurezza devi cambiare la password al primo accesso.")
+    # --- CONTROLLO CAMBIO PASSWORD OBBLIGATORIO (CORRETTO) ---
+    if dati_u['PrimoAccesso'] == "1":
+        st.warning(f"⚠️ SICUREZZA: Cambio password obbligatorio per {nome_u}")
         with st.form("cambio_pw_obbligatorio"):
-            nuova_pw = st.text_input("Nuova Password (minimo 4 caratteri)", type="password")
-            conferma_pw = st.text_input("Conferma Nuova Password", type="password")
-            if st.form_submit_button("SALVA E ACCEDI"):
+            nuova_pw = st.text_input("Inserisci nuova Password (min. 4 caratteri)", type="password")
+            conferma_pw = st.text_input("Conferma nuova Password", type="password")
+            
+            if st.form_submit_button("AGGIORNA PASSWORD E ACCEDI"):
                 if nuova_pw == conferma_pw and len(nuova_pw) >= 4:
-                    # Aggiorna il DataFrame
+                    # Identifica l'indice corretto nel DataFrame originale
                     idx = df_dip[df_dip['Nome_Display'] == nome_u].index[0]
-                    df_dip.at[idx, 'Password'] = nuova_pw
+                    
+                    # Aggiorna i valori
+                    df_dip.at[idx, 'Password'] = str(nuova_pw).strip()
                     df_dip.at[idx, 'PrimoAccesso'] = "0"
-                    # Rimuovi colonna di servizio prima di salvare
+                    
+                    # Prepara il salvataggio rimuovendo la colonna temporanea
                     df_salva = df_dip.drop(columns=['Nome_Display'])
                     conn.update(worksheet="Dipendenti", data=df_salva)
-                    st.success("✅ Password aggiornata! Ora puoi accedere al portale.")
+                    
+                    st.success("✅ Password aggiornata con successo!")
+                    st.balloons()
                     st.rerun()
+                elif len(nuova_pw) < 4:
+                    st.error("❌ La password deve essere lunga almeno 4 caratteri.")
                 else:
-                    st.error("❌ Le password non coincidono o sono troppo brevi.")
-        st.stop() # Blocca l'esecuzione qui finché non cambiano la password
+                    st.error("❌ Le password non coincidono.")
+        st.stop() # Impedisce di vedere il resto finché non cambia PW
 
-    # --- SE PASSA IL CONTROLLO, CARICA IL RESTO ---
+    # --- CARICAMENTO ALTRE TABELLE ---
     try:
         df_richieste = conn.read(worksheet="Richieste", ttl="1m")
         df_limiti = conn.read(worksheet="Limiti_Mensili", ttl="1m")
     except:
         df_limiti = pd.DataFrame(columns=['Mese', 'Limite'])
 
+    # --- SIDEBAR E NAVIGAZIONE ---
     st.sidebar.success(f"👤 {nome_u}")
     menu = ["📊 Dashboard", "📩 Invia Richiesta"]
-    if "ROSSINI" in nome_u.upper(): menu.append("⚙️ Admin")
+    if "ROSSINI" in nome_u.upper(): 
+        menu.append("⚙️ Admin")
     scelta = st.sidebar.radio("Menu", menu)
-    if st.sidebar.button("Logout"): st.session_state.autenticato = False; st.rerun()
+    
+    if st.sidebar.button("Logout"): 
+        st.session_state.autenticato = False
+        st.rerun()
 
+    # --- CONTENUTI SEZIONI ---
     if scelta == "📊 Dashboard":
         c1, c2, c3 = st.columns(3)
         c1.metric("Ferie", f"{dati_u['Ferie']} gg")
@@ -124,10 +144,11 @@ else:
                         nuove = [{"Data_Richiesta": datetime.now().strftime("%d/%m/%Y"), "Nome": nome_u, "Tipo": tipo, "Periodo": str(gx.date()), "Note": note} for gx in giorni]
                         conn.update(worksheet="Richieste", data=pd.concat([df_richieste, pd.DataFrame(nuove)], ignore_index=True))
                         invia_notifica_email(nome_u, tipo, f"{per[0]} - {per[1]}", note)
-                        st.success("Inviato!"); st.balloons()
+                        st.success("Richiesta inviata!"); st.balloons()
 
     elif scelta == "⚙️ Admin":
         t1, t2, t3, t4, t5 = st.tabs(["📅 MATRICE LUN-DOM", "🔢 LIMITI MENSILI", "➕ AGGIUNGI", "🗑️ ELIMINA", "📊 DB"])
+        # ... (Resto del codice Admin invariato) ...
         with t1:
             oggi = datetime.now().date()
             lunedi = oggi - timedelta(days=oggi.weekday())
@@ -144,7 +165,7 @@ else:
                         r[col] = m['Tipo'].values[0] if not m.empty else "-"
                     matrice.append(r)
                 st.dataframe(pd.DataFrame(matrice).set_index("Dipendente"), use_container_width=True)
-            else: st.info("Nessuno assente.")
+            else: st.info("Tutti presenti.")
         with t2:
             if not df_limiti.empty:
                 nuovi_l = {}
