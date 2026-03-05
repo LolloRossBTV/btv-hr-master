@@ -92,13 +92,13 @@ else:
 
     # --- CARICAMENTO ALTRE TABELLE ---
     try:
-        df_richieste = conn.read(worksheet="Richieste", ttl=0)
-        df_limiti = conn.read(worksheet="Limiti_Mensili", ttl=0)
-    except:
-        df_limiti = pd.DataFrame(columns=['Mese', 'Limite'])
+       # --- PAGINE ---
+    if scelta == "📊 Dashboard":
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Ferie residue", f"{utente_info['Ferie']} gg")
+        c2.metric("ROL residui", f"{utente_info['ROL']} ore")
+        c3.metric("Contratto", utente_info['Contratto'])
 
-    # --- NAVIGAZIONE SIDEBAR ---
-    st.sidebar.info(f"👤 {st.session_state.utente_loggato}")
     elif scelta == "📩 Invia Richiesta":
         with st.form("richiesta_form"):
             tipo = st.selectbox("Tipo", ["Ferie", "ROL", "104", "Congedo"])
