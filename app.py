@@ -166,48 +166,56 @@ else:
                             st.success("✅ Periodo salvato!"); st.balloons()
                     else: st.warning("⚠️ Seleziona Inizio e Fine nel calendario.")
 
-       # --- PANNELLO ADMIN (VISTA SETTIMANALE) ---
+      # --- PANNELLO ADMIN INTEGRALE (VERSIONE MATRICE ODS) ---
         elif "Admin" in scelta:
             st.header("⚙️ Pannello Amministratore")
             
-            # Creiamo i Tab, mettendo la Pianificazione come primo
-            t_pianif, t_lim, t_pers, t_db = st.tabs([
-                "📅 PIANIFICAZIONE ODS", 
+            t_pianif, t_lim, t_add, t_del, t_db = st.tabs([
+                "📅 MATRICE ODS", 
                 "🔢 LIMITI MENSILI", 
-                "👥 PERSONALE", 
+                "➕ NUOVA RISORSA",
+                "🗑️ ELIMINA", 
                 "📊 DATABASE"
             ])
 
+            # 1. MATRICE SETTIMANALE (NUOVA VISUALIZZAZIONE)
             with t_pianif:
-                st.subheader("🗓️ Assenze della Settimana (Prossimi 7 giorni)")
-                
-                # Calcoliamo l'intervallo temporale
-                oggi = pd.Timestamp.now().date()
-                fra_una_settimana = oggi + pd.Timedelta(days=7)
-                
-                # Filtriamo le richieste nel lasso temporale
+                st.subheader("🗓️ Prospetto Assenze (Prossimi 7 giorni)")
                 try:
-                    # Assicuriamoci che la colonna Periodo sia in formato data
+                    # Definiamo i prossimi 7 giorni
+                    oggi = pd.Timestamp.now().date()
+                    giorni_prospetto = [oggi + pd.Timedelta(days=i) for i in range(7)]
+                    
+                    # Prepariamo i dati per la tabella
                     df_richieste['Data_Giorno'] = pd.to_datetime(df_richieste['Periodo']).dt.date
-                    df_settimana = df_richieste[
-                        (df_richieste['Data_Giorno'] >= oggi) & 
-                        (df_richieste['Data_Giorno'] <= fra_una_settimana)
-                    ].copy()
-
-                    if not df_settimana.empty:
-                        # Ordiniamo per data per facilitare l'ODS
-                        df_settimana = df_settimana.sort_values(by='Data_Giorno')
+                    
+                    # Creiamo un dizionario per mappare chi manca e quando
+                    matrice_dati = []
+                    
+                    # Cerchiamo tutti i dipendenti che hanno almeno un'assenza nella settimana
+                    dipendenti_assenti = df_richieste[df_richieste['Data_Giorno'].isin(giorni_prospetto)]['Nome'].unique()
+                    
+                    if len(dipendenti_assenti) > 0:
+                        for dip in sorted(dipendenti_assenti):
+                            riga = {"Dipendente": dip}
+                            for g in giorni_prospetto:
+                                col_name = g.strftime('%a %d/%m') # Es: Lun 10/03
+                                # Cerchiamo se il dipendente ha una richiesta per quel giorno specifico
+                                match = df_richieste[(df_richieste['Nome'] == dip) & (df_richieste['Data_Giorno'] == g)]
+                                if not match.empty:
+                                    riga[col_name] = match['Tipo'].values[0] # Es: Ferie
+                                else:
+                                    riga[col_name] = "-" # Presente
+                            matrice_dati.append(riga)
                         
-                        # Formattiamo la data per una lettura più "simpatica"
-                        df_settimana['Giorno'] = df_settimana['Data_Giorno'].apply(lambda x: x.strftime('%A %d/%m'))
-                        
-                        # Mostriamo la tabella pulita
-                        st.table(df_settimana[['Giorno', 'Nome', 'Tipo', 'Note']])
+                        df_matrice = pd.DataFrame(matrice_dati)
+                        st.dataframe(df_matrice.set_index("Dipendente"), use_container_width=True)
                     else:
-                        st.info("✅ Nessuna assenza pianificata per i prossimi 7 giorni.")
+                        st.info("✅ Nessuna assenza registrata per i prossimi 7 giorni.")
                 except Exception as e:
-                    st.error(f"Errore nel filtro pianificazione: {e}")
+                    st.error(f"Errore nella generazione matrice: {e}")
 
+            # 2. LIMITI MENSILI
             with t_lim:
                 st.subheader("Modifica Soglie Assenze")
                 nuovi_v = {}
@@ -222,14 +230,33 @@ else:
                     conn.update(worksheet="Limiti_Mensili", data=df_up)
                     st.success("✅ Limiti aggiornati!"); st.rerun()
 
-            with t_pers:
-                st.write("**Gestione Rapida Dipendenti**")
+            # 3. AGGIUNTA NUOVA RISORSA (PRESENTE!)
+            with t_add:
+                st.subheader("➕ Inserisci un nuovo dipendente")
+                with st.form("form_nuovo_u", clear_on_submit=True):
+                    nuovo_nome = st.text_input("Nome e Cognome (es. MARIO ROSSI)").upper()
+                    nuovo_contratto = st.selectbox("Tipo Contratto", ["Fiduciario", "Armato", "Amministrativo"])
+                    f_ini = st.number_input("Ferie (gg)", 0, 100, 0)
+                    r_ini = st.number_input("ROL (ore)", 0, 100, 0)
+                    
+                    if st.form_submit_button("REGISTRA DIPENDENTE"):
+                        if nuovo_nome:
+                            nuovo_d = {"Nome": nuovo_nome, "Password": "12345", "Ferie": f_ini, "ROL": r_ini, "Contratto": nuovo_contratto, "PrimoAccesso": "1"}
+                            df_nuovo_tot = pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo_d])], ignore_index=True)
+                            conn.update(worksheet="Dipendenti", data=df_nuovo_tot)
+                            st.success(f"✅ {nuovo_nome} aggiunto!"); st.rerun()
+                        else: st.error("Inserisci il nome!")
+
+            # 4. ELIMINA RISORSA
+            with t_del:
+                st.subheader("🗑️ Rimuovi dipendente")
                 u_del = st.selectbox("Seleziona chi eliminare:", ["---"] + sorted(df_dip['Nome_Display'].unique()))
-                if u_del != "---" and st.button("ELIMINA DEFINITIVAMENTE"):
-                    conn.update(worksheet="Dipendenti", data=df_dip[df_dip['Nome_Display'] != u_del].drop(columns=['Nome_Display']))
+                if u_del != "---" and st.button("ELIMINA DEFINITIVAMENTE", type="primary"):
+                    df_f = df_dip[df_dip['Nome_Display'] != u_del].drop(columns=['Nome_Display'])
+                    conn.update(worksheet="Dipendenti", data=df_f)
                     st.success(f"Rimosso!"); st.rerun()
 
+            # 5. DATABASE COMPLETO
             with t_db:
-                st.write("### Database Completo Richieste")
-                st.dataframe(df_richieste, use_container_width=True)# Ora df_richieste è definito e non darà più errore!
+                st.write("### Storico Richieste")
                 st.dataframe(df_richieste, use_container_width=True)
