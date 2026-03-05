@@ -91,7 +91,7 @@ else:
         st.stop() # Blocca tutto il resto
 
     # --- CARICAMENTO ALTRE TABELLE ---
-    # --- PAGINE (Sostituisci da qui) ---
+   # --- PAGINE ---
     if scelta == "📊 Dashboard":
         c1, c2, c3 = st.columns(3)
         c1.metric("Ferie residue", f"{utente_info['Ferie']} gg")
@@ -106,10 +106,8 @@ else:
             if st.form_submit_button("Invia"):
                 if len(periodo) == 2:
                     giorni = pd.date_range(start=periodo[0], end=periodo[1])
-                    
-                    # Controllo esenzione limiti (Colonna SenzaLimiti su Google Sheets)
+                    # Controllo esenzione
                     esente = str(utente_info.get('SenzaLimiti', '0')).strip() == "1"
-                    
                     possibile = True
                     if not esente:
                         for g in giorni:
@@ -140,7 +138,6 @@ else:
                         invia_notifica_email(st.session_state.utente_loggato, tipo, str(periodo), note)
                         st.success("Richiesta inviata correttamente!")
                         st.balloons()
-    # --- FINE BLOCCO SOSTITUZIONE ---
                             nuove_richieste.append({
                                 "Data_Richiesta": datetime.now().strftime("%d/%m/%Y"),
                                 "Nome": st.session_state.utente_loggato,
