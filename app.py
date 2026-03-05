@@ -120,12 +120,11 @@ else:
         c1.metric("Ferie residue", f"{dati_u['Ferie']} gg")
         c2.metric("ROL residui", f"{dati_u['ROL']} ore")
         c3.metric("Contratto", dati_u['Contratto'])
-
-    elif scelta == "📩 Invia Richiesta":
+elif scelta == "📩 Invia Richiesta":
         st.header("Inserimento Assenza")
         with st.form("form_invio"):
-            # AGGIUNTO IL CONGEDO E ALTRE VOCI
-            tipo = st.selectbox("Motivazione", ["Ferie", "ROL", "104", "Congedo Parentale", "Congedo Matrimoniale", "Malattia"])
+            # 1. Lista causali aggiornata (senza malattia)
+            tipo = st.selectbox("Motivazione", ["Ferie", "ROL", "104", "Congedo Parentale", "Congedo Matrimoniale"])
             periodo = st.date_input("Periodo (Inizio e Fine)", value=())
             note = st.text_area("Eventuali note")
             
@@ -147,50 +146,49 @@ else:
                             st.error(f"❌ Il {g.strftime('%d/%m')} è pieno."); possibile = False; break
                     
                     if possibile:
-                        # 1. Salva su Google Sheets
+                        # SALVA SU GOOGLE SHEETS
                         nuove = [{"Data_Richiesta": pd.Timestamp.now().strftime("%d/%m/%Y"), "Nome": nome_u, "Tipo": tipo, "Periodo": str(gx.date()), "Note": note} for gx in giorni]
                         conn.update(worksheet="Richieste", data=pd.concat([df_richieste, pd.DataFrame(nuove)], ignore_index=True))
                         
-                        # 2. Invia E-mail
+                        # INVIO E-MAIL (Configura mittente/password nella funzione in alto se l'hai messa)
                         periodo_str = f"dal {periodo[0]} al {periodo[1]}"
-                        mail_ok = invia_notifica_email(nome_u, tipo, periodo_str, note)
+                        invia_notifica_email(nome_u, tipo, periodo_str, note)
                         
-                        if mail_ok:
-                            st.success("✅ Richiesta salvata e e-mail inviata!")
-                        else:
-                            st.warning("✅ Richiesta salvata, ma l'invio mail ha avuto un problema.")
-                        st.balloons()
-                else: st.warning("Seleziona sia la data di inizio che quella di fine.")
+                        st.success("✅ Richiesta salvata e notifica inviata!"); st.balloons()
+                else: st.warning("Seleziona Inizio e Fine.")
 
     elif scelta == "⚙️ Pannello Admin":
-        # ... (Resto del codice Admin rimane uguale)
         st.header("Amministrazione")
-        t_ods, t_lim, t_add, t_db = st.tabs(["📅 MATRICE ODS", "🔢 LIMITI", "➕ NUOVO DIPENDENTE", "📊 DATABASE"])
+        t_ods, t_lim, t_add, t_db = st.tabs(["📅 MATRICE LUN-DOM", "🔢 LIMITI", "➕ NUOVO", "📊 DATABASE"])
         
         with t_ods:
-            st.subheader("Prospetto Assenze (Prossimi 7 giorni)")
-            g_p = [pd.Timestamp.now().date() + pd.Timedelta(days=i) for i in range(7)]
+            st.subheader("Pianificazione Settimanale (Lunedì - Domenica)")
+            # CALCOLO SETTIMANA CORRENTE (LUN-DOM)
+            oggi = pd.Timestamp.now().date()
+            lunedi = oggi - pd.Timedelta(days=oggi.weekday())
+            settimana = [lunedi + pd.Timedelta(days=i) for i in range(7)]
+            
             df_richieste['Data_Giorno'] = pd.to_datetime(df_richieste['Periodo']).dt.date
-            assenti = df_richieste[df_richieste['Data_Giorno'].isin(g_p)]['Nome'].unique()
+            assenti = df_richieste[df_richieste['Data_Giorno'].isin(settimana)]['Nome'].unique()
+            
             if len(assenti) > 0:
                 matrice = []
                 for dip in sorted(assenti):
                     r = {"Dipendente": dip}
-                    for g in g_p:
+                    for g in settimana:
                         col = g.strftime('%a %d/%m')
                         m = df_richieste[(df_richieste['Nome'] == dip) & (df_richieste['Data_Giorno'] == g)]
                         r[col] = m['Tipo'].values[0] if not m.empty else "-"
                     matrice.append(r)
                 st.dataframe(pd.DataFrame(matrice).set_index("Dipendente"), use_container_width=True)
-            else: st.info("Tutti presenti.")
-        
+            else: st.info("Nessuna assenza programmata per questa settimana.")
+
         with t_lim:
-             # Sezione Limiti
-             if not df_limiti.empty:
+            if not df_limiti.empty:
                 nuovi_l = {}
                 c1, c2, c3 = st.columns(3)
                 for i, r in df_limiti.iterrows():
-                    with [c1, c2, c3][i % 3]: nuovi_l[r['Mese']] = st.number_input(r['Mese'].capitalize(), 1, 15, int(r['Limite']))
+                    with [c1, c2, c3][i % 3]: nuovi_l[r['Mese']] = st.number_input(r['Mese'].capitalize(), 1, 15, int(r['Limite']), key=f"l_{r['Mese']}")
                 if st.button("Aggiorna Limiti"):
                     conn.update(worksheet="Limiti_Mensili", data=pd.DataFrame(list(nuovi_l.items()), columns=['Mese', 'Limite']))
                     st.success("Limiti salvati!"); st.rerun()
@@ -199,10 +197,11 @@ else:
             with st.form("add_new"):
                 nn = st.text_input("Nome e Cognome").upper()
                 cc = st.selectbox("Contratto", ["Fiduciario", "Armato", "Amministrativo"])
-                if st.form_submit_button("REGISTRA"):
+                if st.form_submit_button("REGISTRA NUOVO"):
                     nuovo = {"Nome": nn, "Password": "12345", "Ferie": 0, "ROL": 0, "Contratto": cc, "PrimoAccesso": "1"}
                     conn.update(worksheet="Dipendenti", data=pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo])], ignore_index=True))
-                    st.success(f"{nn} aggiunto!"); st.rerun()
+                    st.success(f"{nn} aggiunto correttamente!"); st.rerun()
 
         with t_db:
             st.dataframe(df_richieste, use_container_width=True)
+   
