@@ -91,8 +91,7 @@ else:
         st.stop() # Blocca tutto il resto
 
     # --- CARICAMENTO ALTRE TABELLE ---
-    try:
-       # --- PAGINE ---
+    # --- PAGINE (Sostituisci da qui) ---
     if scelta == "📊 Dashboard":
         c1, c2, c3 = st.columns(3)
         c1.metric("Ferie residue", f"{utente_info['Ferie']} gg")
@@ -108,7 +107,7 @@ else:
                 if len(periodo) == 2:
                     giorni = pd.date_range(start=periodo[0], end=periodo[1])
                     
-                    # --- CONTROLLO ESENZIONE LIMITI ---
+                    # Controllo esenzione limiti (Colonna SenzaLimiti su Google Sheets)
                     esente = str(utente_info.get('SenzaLimiti', '0')).strip() == "1"
                     
                     possibile = True
@@ -123,11 +122,25 @@ else:
                             
                             occ = df_richieste[df_richieste['Periodo'].astype(str) == str(g.date())].shape[0]
                             if tipo in ["Ferie", "ROL"] and occ >= lim_g:
-                                st.error(f"Giorno {g.date()} completo (Max {lim_g} persone)."); possibile = False; break
+                                st.error(f"Giorno {g.date()} completo (Max {lim_g} persone).")
+                                possibile = False
+                                break
                     
                     if possibile:
                         nuove_richieste = []
                         for g in giorni:
+                            nuove_richieste.append({
+                                "Data_Richiesta": datetime.now().strftime("%d/%m/%Y"),
+                                "Nome": st.session_state.utente_loggato,
+                                "Tipo": tipo,
+                                "Periodo": str(g.date()),
+                                "Note": note
+                            })
+                        conn.update(worksheet="Richieste", data=pd.concat([df_richieste, pd.DataFrame(nuove_richieste)], ignore_index=True))
+                        invia_notifica_email(st.session_state.utente_loggato, tipo, str(periodo), note)
+                        st.success("Richiesta inviata correttamente!")
+                        st.balloons()
+    # --- FINE BLOCCO SOSTITUZIONE ---
                             nuove_richieste.append({
                                 "Data_Richiesta": datetime.now().strftime("%d/%m/%Y"),
                                 "Nome": st.session_state.utente_loggato,
