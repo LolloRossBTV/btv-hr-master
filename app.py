@@ -13,8 +13,8 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # --- FUNZIONE INVIO E-MAIL ---
 def invia_notifica_email(utente, tipo, periodo, note):
     # --- CONFIGURA QUI I TUOI DATI ---
-    mittente = "tua_email@gmail.com"  # <--- METTI LA TUA MAIL
-    password = "la_tua_app_password"   # <--- METTI LA PASSWORD PER APP DI GOOGLE
+    mittente = "tua_email@gmail.com"  # <--- INSERISCI TUA MAIL
+    password = "la_tua_app_password"   # <--- INSERISCI PASSWORD APP GOOGLE
     destinatario = "ufficio_personale@esempio.it" # <--- MAIL UFFICIO
     
     msg = MIMEMultipart()
@@ -47,6 +47,7 @@ if "utente_loggato" not in st.session_state: st.session_state.utente_loggato = N
 
 st.title("🏥 Sistema Gestione Assenze")
 
+# --- LOGICA LOGIN ---
 if not st.session_state.autenticato:
     with st.form("login"):
         user = st.selectbox("Seleziona Nome", df_dip['Nome_Display'].tolist())
@@ -57,62 +58,69 @@ if not st.session_state.autenticato:
                 st.session_state.autenticato = True
                 st.session_state.utente_loggato = user; st.rerun()
             else: st.error("Password errata!")
+
+# --- AREA RISERVATA ---
 else:
     nome_u = st.session_state.utente_loggato
     dati_u = df_dip[df_dip['Nome_Display'] == nome_u].iloc[0]
     
-    # 1. Caricamento Tabelle Operative
     try:
         df_richieste = conn.read(worksheet="Richieste", ttl="1m")
         df_limiti = conn.read(worksheet="Limiti_Mensili", ttl="1m")
     except:
         df_limiti = pd.DataFrame(columns=['Mese', 'Limite'])
 
-    # 2. Sidebar
+    # Sidebar
     st.sidebar.success(f"👤 {nome_u}")
     menu = ["📊 Dashboard", "📩 Invia Richiesta"]
     if "ROSSINI" in nome_u.upper(): menu.append("⚙️ Admin")
     scelta = st.sidebar.radio("Menu", menu)
     if st.sidebar.button("Logout"): st.session_state.autenticato = False; st.rerun()
 
-    # 3. Sezioni
+    # Sezione Dashboard
     if scelta == "📊 Dashboard":
         c1, c2, c3 = st.columns(3)
         c1.metric("Ferie", f"{dati_u['Ferie']} gg")
         c2.metric("ROL", f"{dati_u['ROL']} ore")
         c3.metric("Contratto", dati_u['Contratto'])
 
+    # Sezione Invio (Senza Malattia, Con Congedi e Limiti Dinamici)
     elif scelta == "📩 Invia Richiesta":
         with st.form("invio"):
-            # RIMOSSA MALATTIA, AGGIUNTO CONGEDO
             tipo = st.selectbox("Tipo", ["Ferie", "ROL", "104", "Congedo Parentale", "Congedo Matrimoniale"])
             per = st.date_input("Periodo", value=())
             note = st.text_area("Note")
             if st.form_submit_button("Invia"):
                 if len(per) == 2:
                     giorni = pd.date_range(start=per[0], end=per[1])
+                    mesi_it = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
                     possibile = True
                     for g in giorni:
+                        m_n = mesi_it[g.month - 1]
+                        lim_g = 3
+                        if not df_limiti.empty:
+                            r_l = df_limiti[df_limiti['Mese'].str.lower() == m_n.lower()]
+                            if not r_l.empty: lim_g = int(r_l['Limite'].values[0])
+                        
                         occ = df_richieste[df_richieste['Periodo'].astype(str) == str(g.date())].shape[0]
-                        if tipo in ["Ferie", "ROL"] and occ >= 3: # Limite base
-                            st.error(f"Pieno il {g.date()}"); possibile = False; break
+                        if tipo in ["Ferie", "ROL"] and occ >= lim_g:
+                            st.error(f"Pieno il {g.date()} (Max {lim_g})"); possibile = False; break
+                    
                     if possibile:
                         nuove = [{"Data_Richiesta": datetime.now().strftime("%d/%m/%Y"), "Nome": nome_u, "Tipo": tipo, "Periodo": str(gx.date()), "Note": note} for gx in giorni]
                         conn.update(worksheet="Richieste", data=pd.concat([df_richieste, pd.DataFrame(nuove)], ignore_index=True))
                         invia_notifica_email(nome_u, tipo, f"{per[0]} - {per[1]}", note)
                         st.success("Inviato!"); st.balloons()
 
+    # Sezione Admin (Matrice LUN-DOM e Gestione Limiti)
     elif scelta == "⚙️ Admin":
-        t1, t2, t3 = st.tabs(["📅 MATRICE LUN-DOM", "➕ NUOVO", "📊 DB"])
+        t1, t2, t3, t4 = st.tabs(["📅 MATRICE LUN-DOM", "🔢 LIMITI MENSILI", "➕ NUOVO", "📊 DB"])
         with t1:
-            # LOGICA LUNEDI' -> DOMENICA
             oggi = datetime.now().date()
             lunedi = oggi - timedelta(days=oggi.weekday())
             settimana = [lunedi + timedelta(days=i) for i in range(7)]
-            
             df_richieste['Data_Giorno'] = pd.to_datetime(df_richieste['Periodo']).dt.date
             assenti = df_richieste[df_richieste['Data_Giorno'].isin(settimana)]['Nome'].unique()
-            
             if len(assenti) > 0:
                 matrice = []
                 for dip in sorted(assenti):
@@ -123,12 +131,26 @@ else:
                         r[col] = m['Tipo'].values[0] if not m.empty else "-"
                     matrice.append(r)
                 st.dataframe(pd.DataFrame(matrice).set_index("Dipendente"), use_container_width=True)
-            else: st.info("Nessuno assente questa settimana.")
-        
+            else: st.info("Nessuno assente.")
+
         with t2:
+            if not df_limiti.empty:
+                nuovi_l = {}
+                c1, c2, c3 = st.columns(3)
+                for i, r in df_limiti.iterrows():
+                    with [c1, c2, c3][i % 3]:
+                        nuovi_l[r['Mese']] = st.number_input(f"Limite {r['Mese']}", 1, 20, int(r['Limite']), key=f"l_{r['Mese']}")
+                if st.button("Salva Limiti"):
+                    conn.update(worksheet="Limiti_Mensili", data=pd.DataFrame(list(nuovi_l.items()), columns=['Mese', 'Limite']))
+                    st.success("Salvati!"); st.rerun()
+
+        with t3:
             with st.form("add"):
                 nn = st.text_input("Nome").upper()
                 if st.form_submit_button("Aggiungi"):
                     n_u = {"Nome": nn, "Password": "12345", "Ferie": 0, "ROL": 0, "Contratto": "Fiduciario", "PrimoAccesso": "1"}
                     conn.update(worksheet="Dipendenti", data=pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([n_u])], ignore_index=True))
                     st.success("Aggiunto!"); st.rerun()
+
+        with t4:
+            st.dataframe(df_richieste)
