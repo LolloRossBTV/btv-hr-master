@@ -107,7 +107,7 @@ else:
         c1.metric("Ferie residue", f"{dati_u['Ferie']} gg")
         c2.metric("ROL residui", f"{dati_u['ROL']} ore")
         c3.metric("Contratto", dati_u['Contratto'])
-        elif scelta == "📩 Invia Richiesta":
+      elif scelta == "📩 Invia Richiesta":
         st.header("Inserimento Assenza")
         with st.form("form_invio"):
             tipo = st.selectbox("Motivazione", ["Ferie", "ROL", "104", "Congedo Parentale", "Congedo Matrimoniale"])
@@ -188,5 +188,3 @@ else:
 
         with t_db:
             st.dataframe(df_richieste, use_container_width=True)
-
-    
