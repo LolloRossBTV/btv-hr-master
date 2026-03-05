@@ -102,7 +102,7 @@ else:
     if st.sidebar.button("Logout"):
         st.session_state.autenticato = False
         st.rerun()
-    # --- 5. AREA PRIVATA (Sostituisci TUTTO da qui alla fine) ---
+  # --- 5. AREA PRIVATA (Sostituisci tutto da qui alla fine del file) ---
     else:
         nome_u = str(st.session_state.utente_loggato)
         dati_u = df_dip[df_dip['Nome_Display'] == nome_u].iloc[0]
@@ -124,14 +124,14 @@ else:
                         st.error("Le password non coincidono o sono troppo corte.")
             st.stop() 
 
-        # --- MENU E CARICAMENTO DATI ---
+        # --- CARICAMENTO DATI E MENU ---
         st.sidebar.success(f"👤 {nome_u}")
         try:
-            # Protezione quota: legge i dati dal foglio Google solo ogni 60 secondi
+            # ttl="1m" evita l'errore "Quota Exceeded" che abbiamo visto nelle foto
             df_richieste = conn.read(worksheet="Richieste", ttl="1m")
             df_limiti = conn.read(worksheet="Limiti_Mensili", ttl="1m")
         except:
-            st.error("⚠️ Limite richieste Google raggiunto. Attendi un istante."); st.stop()
+            st.error("⚠️ Errore Database (Quota Google raggiunta). Attendi un minuto."); st.stop()
 
         menu = ["📊 Dashboard Saldi", "📩 Invia Richiesta"]
         if "ROSSINI" in nome_u.upper(): 
@@ -142,19 +142,19 @@ else:
         if st.sidebar.button("Logout"):
             st.session_state.autenticato = False; st.rerun()
 
-        # 1. DASHBOARD SALDI
-        if "Saldi" in scelta:
-            st.header("📊 Situazione Personale")
+        # 1. SEZIONE SALDI
+        if scelta == "📊 Dashboard Saldi":
+            st.header("📊 La tua situazione")
             c1, c2, c3 = st.columns(3)
             c1.metric("Ferie residue", f"{dati_u['Ferie']} gg")
             c2.metric("ROL residui", f"{dati_u['ROL']} ore")
             c3.metric("Contratto", dati_u['Contratto'])
 
-        # 2. INVIO RICHIESTA (DAL/AL)
-        elif "Richiesta" in scelta:
-            st.header("📩 Inserisci Periodo Assenza")
+        # 2. SEZIONE INVIO RICHIESTA (DAL/AL)
+        elif scelta == "📩 Invia Richiesta":
+            st.header("📩 Inserisci Richiesta Periodo")
             with st.form("form_periodo", clear_on_submit=True):
-                tipo = st.selectbox("Causale", ["Ferie", "ROL", "Legge 104", "Congedo Parentale"])
+                tipo = st.selectbox("Causale", ["Ferie", "ROL", "Legge 104"])
                 periodo_scelto = st.date_input("Seleziona periodo (Inizio e Fine)", value=())
                 note = st.text_area("Note aggiuntive")
                 if st.form_submit_button("🚀 Verifica e Invia"):
@@ -169,21 +169,21 @@ else:
                             lim = int(df_limiti[df_limiti['Mese'] == m_nome]['Limite'].values[0])
                             occ = df_richieste[df_richieste['Periodo'].astype(str) == str(g.date())].shape[0]
                             if tipo in ["Ferie", "ROL"] and occ >= lim:
-                                errore_limite = True; st.error(f"❌ Il {g.strftime('%d/%m')} è già pieno!"); break
+                                errore_limite = True; st.error(f"❌ {g.strftime('%d/%m')} pieno!"); break
                         
                         if not errore_limite:
                             nuove = [{"Data_Richiesta": pd.Timestamp.now().strftime("%d/%m/%Y"), "Nome": nome_u, "Tipo": tipo, "Periodo": str(gx.date()), "Note": note} for gx in giorni]
                             conn.update(worksheet="Richieste", data=pd.concat([df_richieste, pd.DataFrame(nuove)], ignore_index=True))
                             st.success("✅ Richiesta salvata!"); st.balloons()
-                    else: st.warning("⚠️ Seleziona sia la data di inizio che quella di fine.")
+                    else: st.warning("Seleziona Inizio e Fine nel calendario.")
 
         # 3. PANNELLO ADMIN INTEGRALE
         elif "Admin" in scelta:
             st.header("⚙️ Amministrazione")
-            t_ods, t_lim, t_add, t_db = st.tabs(["📅 MATRICE ODS", "🔢 LIMITI", "➕ NUOVA RISORSA", "📊 DATABASE"])
+            t_ods, t_lim, t_add, t_db = st.tabs(["📅 MATRICE ODS", "🔢 LIMITI", "➕ NUOVO", "📊 DB"])
 
             with t_ods:
-                st.subheader("🗓️ Prospetto Settimanale")
+                st.subheader("🗓️ Prospetto Assenze (7 giorni)")
                 oggi = pd.Timestamp.now().date()
                 giorni_p = [oggi + pd.Timedelta(days=i) for i in range(7)]
                 df_richieste['Data_Giorno'] = pd.to_datetime(df_richieste['Periodo']).dt.date
@@ -198,7 +198,7 @@ else:
                             r[col] = m['Tipo'].values[0] if not m.empty else "-"
                         matrice.append(r)
                     st.dataframe(pd.DataFrame(matrice).set_index("Dipendente"), use_container_width=True)
-                else: st.info("Tutti presenti nei prossimi 7 giorni.")
+                else: st.info("Tutti presenti!")
 
             with t_lim:
                 nuovi_v = {}
@@ -207,20 +207,18 @@ else:
                     m = riga['Mese']
                     with [c1, c2, c3][i % 3]:
                         nuovi_v[m] = st.number_input(f"{m.capitalize()}", 1, 15, int(riga['Limite']), key=f"l_{m}")
-                if st.button("💾 SALVA LIMITI"):
+                if st.button("💾 AGGIORNA LIMITI", type="primary"):
                     conn.update(worksheet="Limiti_Mensili", data=pd.DataFrame(list(nuovi_v.items()), columns=['Mese', 'Limite']))
-                    st.success("Limiti aggiornati!"); st.rerun()
+                    st.success("Fatto!"); st.rerun()
 
             with t_add:
                 with st.form("f_add"):
                     nn = st.text_input("Nome e Cognome").upper()
                     cc = st.selectbox("Contratto", ["Fiduciario", "Armato", "Amministrativo"])
                     if st.form_submit_button("REGISTRA"):
-                        if nn:
-                            nuovo = {"Nome": nn, "Password": "12345", "Ferie": 0, "ROL": 0, "Contratto": cc, "PrimoAccesso": "1"}
-                            conn.update(worksheet="Dipendenti", data=pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo])], ignore_index=True))
-                            st.success("Aggiunto!"); st.rerun()
-                        else: st.error("Inserisci il nome!")
+                        nuovo = {"Nome": nn, "Password": "12345", "Ferie": 0, "ROL": 0, "Contratto": cc, "PrimoAccesso": "1"}
+                        conn.update(worksheet="Dipendenti", data=pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo])], ignore_index=True))
+                        st.success("Aggiunto!"); st.rerun()
 
             with t_db:
                 st.dataframe(df_richieste, use_container_width=True)
