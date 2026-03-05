@@ -107,11 +107,9 @@ else:
         c1.metric("Ferie residue", f"{dati_u['Ferie']} gg")
         c2.metric("ROL residui", f"{dati_u['ROL']} ore")
         c3.metric("Contratto", dati_u['Contratto'])
-
-    elif scelta == "📩 Invia Richiesta":
+        elif scelta == "📩 Invia Richiesta":
         st.header("Inserimento Assenza")
         with st.form("form_invio"):
-            # Causali aggiornate (senza malattia)
             tipo = st.selectbox("Motivazione", ["Ferie", "ROL", "104", "Congedo Parentale", "Congedo Matrimoniale"])
             periodo = st.date_input("Periodo (Inizio e Fine)", value=())
             note = st.text_area("Eventuali note")
@@ -119,36 +117,38 @@ else:
             if st.form_submit_button("Verifica e Invia"):
                 if len(periodo) == 2:
                     giorni = pd.date_range(start=periodo[0], end=periodo[1])
+                    mesi_it = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+                    
                     possibile = True
-                    # Controllo rapido occupazione (limite 3)
                     for g in giorni:
+                        m_n = mesi_it[g.month - 1]
+                        lim = 3 # Default se il foglio è vuoto
+                        if not df_limiti.empty:
+                            lim_r = df_limiti[df_limiti['Mese'] == m_n]
+                            if not lim_r.empty: lim = int(lim_r['Limite'].values[0])
+                        
                         occ = df_richieste[df_richieste['Periodo'].astype(str) == str(g.date())].shape[0]
-                        if tipo in ["Ferie", "ROL"] and occ >= 3:
-                            st.error(f"❌ Il {g.strftime('%d/%m')} è già al completo."); possibile = False; break
+                        if tipo in ["Ferie", "ROL"] and occ >= lim:
+                            st.error(f"❌ Il {g.strftime('%d/%m')} è già al completo (Limite: {lim})."); possibile = False; break
                     
                     if possibile:
                         nuove = [{"Data_Richiesta": pd.Timestamp.now().strftime("%d/%m/%Y"), "Nome": nome_u, "Tipo": tipo, "Periodo": str(gx.date()), "Note": note} for gx in giorni]
                         conn.update(worksheet="Richieste", data=pd.concat([df_richieste, pd.DataFrame(nuove)], ignore_index=True))
-                        
-                        # Invio E-mail
-                        per_str = f"dal {periodo[0]} al {periodo[1]}"
-                        invia_notifica_email(nome_u, tipo, per_str, note)
-                        st.success("✅ Richiesta inviata!"); st.balloons()
-                else: st.warning("Seleziona le date.")
+                        invia_notifica_email(nome_u, tipo, f"dal {periodo[0]} al {periodo[1]}", note)
+                        st.success("✅ Richiesta inviata con successo!"); st.balloons()
+                else: st.warning("Seleziona entrambe le date.")
 
     elif scelta == "⚙️ Pannello Admin":
         st.header("Amministrazione")
-        t_ods, t_lim, t_add, t_db = st.tabs(["📅 MATRICE LUN-DOM", "🔢 LIMITI", "➕ NUOVO", "📊 DATABASE"])
+        t_ods, t_lim, t_add, t_db = st.tabs(["📅 MATRICE LUN-DOM", "🔢 LIMITI MENSILI", "➕ NUOVO", "📊 DATABASE"])
         
         with t_ods:
-            # Calcolo settimana Lunedì - Domenica
+            # Matrice Lunedì - Domenica
             oggi = pd.Timestamp.now().date()
             lunedi = oggi - pd.Timedelta(days=oggi.weekday())
             settimana = [lunedi + pd.Timedelta(days=i) for i in range(7)]
-            
             df_richieste['Data_Giorno'] = pd.to_datetime(df_richieste['Periodo']).dt.date
             assenti = df_richieste[df_richieste['Data_Giorno'].isin(settimana)]['Nome'].unique()
-            
             if len(assenti) > 0:
                 matrice = []
                 for dip in sorted(assenti):
@@ -162,7 +162,21 @@ else:
             else: st.info("Nessuna assenza questa settimana.")
 
         with t_lim:
-            st.info("Configurazione limiti mensili attiva.")
+            st.subheader("Configura soglie massime per mese")
+            if df_limiti.empty:
+                st.error("Il foglio 'Limiti_Mensili' non è stato trovato o è vuoto.")
+            else:
+                nuovi_l = {}
+                c1, c2, c3 = st.columns(3)
+                # Crea un box numerico per ogni mese presente nel database
+                for i, r in df_limiti.iterrows():
+                    with [c1, c2, c3][i % 3]:
+                        nuovi_l[r['Mese']] = st.number_input(f"Limite {r['Mese'].capitalize()}", 1, 20, int(r['Limite']), key=f"key_{r['Mese']}")
+                
+                if st.button("Salva Nuovi Limiti"):
+                    df_aggiornato = pd.DataFrame(list(nuovi_l.items()), columns=['Mese', 'Limite'])
+                    conn.update(worksheet="Limiti_Mensili", data=df_aggiornato)
+                    st.success("✅ Limiti aggiornati su Google Sheets!"); st.rerun()
 
         with t_add:
             with st.form("add_new"):
@@ -174,3 +188,5 @@ else:
 
         with t_db:
             st.dataframe(df_richieste, use_container_width=True)
+
+    
