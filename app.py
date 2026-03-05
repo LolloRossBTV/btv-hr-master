@@ -166,12 +166,49 @@ else:
                             st.success("✅ Periodo salvato!"); st.balloons()
                     else: st.warning("⚠️ Seleziona Inizio e Fine nel calendario.")
 
-        # --- PANNELLO ADMIN (CORRETTO) ---
+       # --- PANNELLO ADMIN (VISTA SETTIMANALE) ---
         elif "Admin" in scelta:
             st.header("⚙️ Pannello Amministratore")
-            t1, t2, t3 = st.tabs(["📅 LIMITI MENSILI", "👥 PERSONALE", "📊 DATABASE"])
+            
+            # Creiamo i Tab, mettendo la Pianificazione come primo
+            t_pianif, t_lim, t_pers, t_db = st.tabs([
+                "📅 PIANIFICAZIONE ODS", 
+                "🔢 LIMITI MENSILI", 
+                "👥 PERSONALE", 
+                "📊 DATABASE"
+            ])
 
-            with t1:
+            with t_pianif:
+                st.subheader("🗓️ Assenze della Settimana (Prossimi 7 giorni)")
+                
+                # Calcoliamo l'intervallo temporale
+                oggi = pd.Timestamp.now().date()
+                fra_una_settimana = oggi + pd.Timedelta(days=7)
+                
+                # Filtriamo le richieste nel lasso temporale
+                try:
+                    # Assicuriamoci che la colonna Periodo sia in formato data
+                    df_richieste['Data_Giorno'] = pd.to_datetime(df_richieste['Periodo']).dt.date
+                    df_settimana = df_richieste[
+                        (df_richieste['Data_Giorno'] >= oggi) & 
+                        (df_richieste['Data_Giorno'] <= fra_una_settimana)
+                    ].copy()
+
+                    if not df_settimana.empty:
+                        # Ordiniamo per data per facilitare l'ODS
+                        df_settimana = df_settimana.sort_values(by='Data_Giorno')
+                        
+                        # Formattiamo la data per una lettura più "simpatica"
+                        df_settimana['Giorno'] = df_settimana['Data_Giorno'].apply(lambda x: x.strftime('%A %d/%m'))
+                        
+                        # Mostriamo la tabella pulita
+                        st.table(df_settimana[['Giorno', 'Nome', 'Tipo', 'Note']])
+                    else:
+                        st.info("✅ Nessuna assenza pianificata per i prossimi 7 giorni.")
+                except Exception as e:
+                    st.error(f"Errore nel filtro pianificazione: {e}")
+
+            with t_lim:
                 st.subheader("Modifica Soglie Assenze")
                 nuovi_v = {}
                 c1, c2, c3 = st.columns(3)
@@ -185,14 +222,14 @@ else:
                     conn.update(worksheet="Limiti_Mensili", data=df_up)
                     st.success("✅ Limiti aggiornati!"); st.rerun()
 
-            with t2:
-                st.write("**Elimina Dipendente**")
+            with t_pers:
+                st.write("**Gestione Rapida Dipendenti**")
                 u_del = st.selectbox("Seleziona chi eliminare:", ["---"] + sorted(df_dip['Nome_Display'].unique()))
                 if u_del != "---" and st.button("ELIMINA DEFINITIVAMENTE"):
                     conn.update(worksheet="Dipendenti", data=df_dip[df_dip['Nome_Display'] != u_del].drop(columns=['Nome_Display']))
-                    st.success(f"{u_del} rimosso!"); st.rerun()
+                    st.success(f"Rimosso!"); st.rerun()
 
-            with t3:
-                st.write("### Storico Richieste nel Database")
-                # Ora df_richieste è definito e non darà più errore!
+            with t_db:
+                st.write("### Database Completo Richieste")
+                st.dataframe(df_richieste, use_container_width=True)# Ora df_richieste è definito e non darà più errore!
                 st.dataframe(df_richieste, use_container_width=True)
