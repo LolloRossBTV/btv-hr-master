@@ -102,161 +102,194 @@ else:
     if st.sidebar.button("Logout"):
         st.session_state.autenticato = False
         st.rerun()
-# --- 5. AREA PRIVATA ---
+        # --- 5. AREA PRIVATA (Incolla questo UNICO blocco) ---
     else:
         nome_u = str(st.session_state.utente_loggato)
-        st.sidebar.success(f"👤 {nome_u}")
+        dati_u = df_dip[df_dip['Nome_Display'] == nome_u].iloc[0]
         
-        # CARICAMENTO DATI GLOBALE (Risolve il NameError in Admin)
+        # --- BLOCCO CAMBIO PASSWORD OBBLIGATORIO ---
+        if str(dati_u['PrimoAccesso']) == "1":
+            st.warning(f"👋 Ciao {nome_u}, devi cambiare la password al primo accesso.")
+            with st.form("cambio_pass"):
+                nuova_p = st.text_input("Nuova Password", type="password")
+                conf_p = st.text_input("Conferma Password", type="password")
+                if st.form_submit_button("SALVA E ACCEDI"):
+                    if nuova_p == conf_p and len(nuova_p) > 3:
+                        idx = df_dip[df_dip['Nome_Display'] == nome_u].index[0]
+                        df_dip.at[idx, 'Password'] = nuova_p
+                        df_dip.at[idx, 'PrimoAccesso'] = "0"
+                        conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
+                        st.success("✅ Password aggiornata!"); st.rerun()
+                    else: st.error("Password non valide!")
+            st.stop()
+
+        # --- MENU NAVIGAZIONE ---
+        st.sidebar.success(f"👤 {nome_u}")
         try:
-            # Usiamo ttl="1m" per evitare il blocco Quota Exceeded visto nelle tue foto
             df_richieste = conn.read(worksheet="Richieste", ttl="1m")
             df_limiti = conn.read(worksheet="Limiti_Mensili", ttl="1m")
-        except Exception as e:
-            st.error(f"⚠️ Errore di connessione al database: {e}")
-            st.stop()
-        
+        except:
+            st.error("⚠️ Errore Database. Aspetta 60 secondi."); st.stop()
+
         menu = ["📊 Dashboard Saldi", "📩 Invia Richiesta"]
-        if "ROSSINI" in nome_u.upper(): 
-            menu.append("⚙️ Pannello Admin")
-        
+        if "ROSSINI" in nome_u.upper(): menu.append("⚙️ Pannello Admin")
         scelta = st.sidebar.radio("Navigazione", menu)
         
         if st.sidebar.button("Esci / Logout"):
-            st.session_state.autenticato = False
-            st.rerun()
+            st.session_state.autenticato = False; st.rerun()
 
-        # --- SEZIONE SALDI ---
+        # --- SEZIONI ---
         if "Saldi" in scelta:
-            st.header("📊 La tua situazione")
-            dati_u = df_dip[df_dip['Nome_Display'] == nome_u].iloc[0]
             c1, c2, c3 = st.columns(3)
             c1.metric("Ferie residue", f"{dati_u['Ferie']} gg")
-            c2.metric("ROL residui", f"{dati_u['ROL']} ore")
-            c3.metric("Tipo Contratto", dati_u['Contratto'])
+            c2.metric("ROL residue", f"{dati_u['ROL']} ore")
+            c3.metric("Contratto", dati_u['Contratto'])
 
-        # --- SEZIONE INVIO RICHIESTA (GESTIONE PERIODO) ---
         elif "Richiesta" in scelta:
-            st.header("📩 Inserisci Richiesta Periodo")
-            with st.form("form_periodo", clear_on_submit=True):
-                tipo = st.selectbox("Causale", ["Ferie", "ROL", "Legge 104", "Congedo Parentale"])
-                periodo_scelto = st.date_input("Seleziona il periodo (Inizio e Fine)", value=())
-                note = st.text_area("Note aggiuntive")
-                
-                if st.form_submit_button("🚀 Verifica e Invia"):
-                    if len(periodo_scelto) == 2:
-                        data_inizio, data_fine = periodo_scelto
-                        giorni_richiesti = pd.date_range(start=data_inizio, end=data_fine)
-                        
-                        errore_limite = False
+            with st.form("form_richiesta"):
+                tipo = st.selectbox("Causale", ["Ferie", "ROL", "Legge 104"])
+                periodo = st.date_input("Periodo (Inizio e Fine)", value=())
+                note = st.text_area("Note")
+                if st.form_submit_button("Invia"):
+                    if len(periodo) == 2:
+                        giorni = pd.date_range(start=periodo[0], end=periodo[1])
                         mesi_it = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+                        for g in giorni:
+                            m_n = mesi_it[g.month - 1]
+                            lim = int(df_limiti[df_limiti['Mese'] == m_n]['Limite'].values[0])
+                            occ = df_richieste[df_richieste['Periodo'].astype(str) == str(g.date())].shape[0]
+                            if tipo in ["Ferie", "ROL"] and occ >= lim:
+                                st.error(f"❌ {g.strftime('%d/%m')} pieno!"); st.stop()
+                        nuove = [{"Data_Richiesta": pd.Timestamp.now().strftime("%d/%m/%Y"), "Nome": nome_u, "Tipo": tipo, "Periodo": str(gx.date()), "Note": note} for gx in giorni]
+                        conn.update(worksheet="Richieste", data=pd.concat([df_richieste, pd.DataFrame(nuove)], ignore_index=True))
+                        st.success("✅ Salvato!"); st.balloons()
 
-                        for giorno in giorni_richiesti:
-                            nome_mese = mesi_it[giorno.month - 1]
-                            riga_lim = df_limiti[df_limiti['Mese'] == nome_mese]
-                            lim_max = int(riga_lim['Limite'].values[0]) if not riga_lim.empty else 3
-                            occupati = df_richieste[df_richieste['Periodo'].astype(str) == str(giorno.date())].shape[0]
-                            
-                            if tipo in ["Ferie", "ROL"] and occupati >= lim_max:
-                                errore_limite = True; st.error(f"❌ Giorno {giorno.strftime('%d/%m')} pieno!"); break
-                        
-                        if not errore_limite:
-                            nuove_righe = [{"Data_Richiesta": pd.Timestamp.now().strftime("%d/%m/%Y"), "Nome": nome_u, "Tipo": tipo, "Periodo": str(g.date()), "Note": note} for g in giorni_richiesti]
-                            conn.update(worksheet="Richieste", data=pd.concat([df_richieste, pd.DataFrame(nuove_righe)], ignore_index=True))
-                            st.success("✅ Periodo salvato!"); st.balloons()
-                    else: st.warning("⚠️ Seleziona Inizio e Fine nel calendario.")
-
-      # --- PANNELLO ADMIN INTEGRALE (VERSIONE MATRICE ODS) ---
         elif "Admin" in scelta:
-            st.header("⚙️ Pannello Amministratore")
-            
-            t_pianif, t_lim, t_add, t_del, t_db = st.tabs([
-                "📅 MATRICE ODS", 
-                "🔢 LIMITI MENSILI", 
-                "➕ NUOVA RISORSA",
-                "🗑️ ELIMINA", 
-                "📊 DATABASE"
-            ])
-
-            # 1. MATRICE SETTIMANALE (NUOVA VISUALIZZAZIONE)
-            with t_pianif:
-                st.subheader("🗓️ Prospetto Assenze (Prossimi 7 giorni)")
-                try:
-                    # Definiamo i prossimi 7 giorni
-                    oggi = pd.Timestamp.now().date()
-                    giorni_prospetto = [oggi + pd.Timedelta(days=i) for i in range(7)]
-                    
-                    # Prepariamo i dati per la tabella
-                    df_richieste['Data_Giorno'] = pd.to_datetime(df_richieste['Periodo']).dt.date
-                    
-                    # Creiamo un dizionario per mappare chi manca e quando
-                    matrice_dati = []
-                    
-                    # Cerchiamo tutti i dipendenti che hanno almeno un'assenza nella settimana
-                    dipendenti_assenti = df_richieste[df_richieste['Data_Giorno'].isin(giorni_prospetto)]['Nome'].unique()
-                    
-                    if len(dipendenti_assenti) > 0:
-                        for dip in sorted(dipendenti_assenti):
-                            riga = {"Dipendente": dip}
-                            for g in giorni_prospetto:
-                                col_name = g.strftime('%a %d/%m') # Es: Lun 10/03
-                                # Cerchiamo se il dipendente ha una richiesta per quel giorno specifico
-                                match = df_richieste[(df_richieste['Nome'] == dip) & (df_richieste['Data_Giorno'] == g)]
-                                if not match.empty:
-                                    riga[col_name] = match['Tipo'].values[0] # Es: Ferie
-                                else:
-                                    riga[col_name] = "-" # Presente
-                            matrice_dati.append(riga)
-                        
-                        df_matrice = pd.DataFrame(matrice_dati)
-                        st.dataframe(df_matrice.set_index("Dipendente"), use_container_width=True)
-                    else:
-                        st.info("✅ Nessuna assenza registrata per i prossimi 7 giorni.")
-                except Exception as e:
-                    st.error(f"Errore nella generazione matrice: {e}")
-
-            # 2. LIMITI MENSILI
+            t_ods, t_lim, t_add, t_db = st.tabs(["📅 MATRICE ODS", "🔢 LIMITI", "➕ NUOVO", "📊 DB"])
+            with t_ods:
+                giorni_p = [pd.Timestamp.now().date() + pd.Timedelta(days=i) for i in range(7)]
+                df_richieste['Data_Giorno'] = pd.to_datetime(df_richieste['Periodo']).dt.date
+                assenti = df_richieste[df_richieste['Data_Giorno'].isin(giorni_p)]['Nome'].unique()
+                if len(assenti) > 0:
+                    matrice = []
+                    for dip in sorted(assenti):
+                        r = {"Dipendente": dip}
+                        for g in giorni_p:
+                            col = g.strftime('%a %d/%m')
+                            m = df_richieste[(df_richieste['Nome'] == dip) & (df_richieste['Data_Giorno'] == g)]
+                            r[col] = m['Tipo'].values[0] if not m.empty else "-"
+                        matrice.append(r)
+                    st.dataframe(pd.DataFrame(matrice).set_index("Dipendente"), use_container_width=True)
             with t_lim:
-                st.subheader("Modifica Soglie Assenze")
-                nuovi_v = {}
+                nuovi_l = {}
                 c1, c2, c3 = st.columns(3)
-                for i, riga in df_limiti.iterrows():
-                    m = riga['Mese']
-                    with [c1, c2, c3][i % 3]:
-                        nuovi_v[m] = st.number_input(f"{m.capitalize()}", 1, 15, int(riga['Limite']), key=f"lim_{m}")
-                
-                if st.button("💾 SALVA LIMITI", use_container_width=True, type="primary"):
-                    df_up = pd.DataFrame(list(nuovi_v.items()), columns=['Mese', 'Limite'])
-                    conn.update(worksheet="Limiti_Mensili", data=df_up)
-                    st.success("✅ Limiti aggiornati!"); st.rerun()
-
-            # 3. AGGIUNTA NUOVA RISORSA (PRESENTE!)
+                for i, r in df_limiti.iterrows():
+                    with [c1, c2, c3][i % 3]: nuovi_l[r['Mese']] = st.number_input(r['Mese'], 1, 15, int(r['Limite']))
+                if st.button("Salva Limiti"):
+                    conn.update(worksheet="Limiti_Mensili", data=pd.DataFrame(list(nuovi_l.items()), columns=['Mese', 'Limite']))
+                    st.success("Limiti OK!")
             with t_add:
-                st.subheader("➕ Inserisci un nuovo dipendente")
-                with st.form("form_nuovo_u", clear_on_submit=True):
-                    nuovo_nome = st.text_input("Nome e Cognome (es. MARIO ROSSI)").upper()
-                    nuovo_contratto = st.selectbox("Tipo Contratto", ["Fiduciario", "Armato", "Amministrativo"])
-                    f_ini = st.number_input("Ferie (gg)", 0, 100, 0)
-                    r_ini = st.number_input("ROL (ore)", 0, 100, 0)
-                    
-                    if st.form_submit_button("REGISTRA DIPENDENTE"):
-                        if nuovo_nome:
-                            nuovo_d = {"Nome": nuovo_nome, "Password": "12345", "Ferie": f_ini, "ROL": r_ini, "Contratto": nuovo_contratto, "PrimoAccesso": "1"}
-                            df_nuovo_tot = pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo_d])], ignore_index=True)
-                            conn.update(worksheet="Dipendenti", data=df_nuovo_tot)
-                            st.success(f"✅ {nuovo_nome} aggiunto!"); st.rerun()
-                        else: st.error("Inserisci il nome!")
-
-            # 4. ELIMINA RISORSA
-            with t_del:
-                st.subheader("🗑️ Rimuovi dipendente")
-                u_del = st.selectbox("Seleziona chi eliminare:", ["---"] + sorted(df_dip['Nome_Display'].unique()))
-                if u_del != "---" and st.button("ELIMINA DEFINITIVAMENTE", type="primary"):
-                    df_f = df_dip[df_dip['Nome_Display'] != u_del].drop(columns=['Nome_Display'])
-                    conn.update(worksheet="Dipendenti", data=df_f)
-                    st.success(f"Rimosso!"); st.rerun()
-
-            # 5. DATABASE COMPLETO
+                with st.form("add_u"):
+                    n_n = st.text_input("Nome Cognome").upper()
+                    c_n = st.selectbox("Contratto", ["Fiduciario", "Armato"])
+                    if st.form_submit_button("Aggiungi"):
+                        nuovo = {"Nome": n_n, "Password": "12345", "Ferie": 0, "ROL": 0, "Contratto": c_n, "PrimoAccesso": "1"}
+                        conn.update(worksheet="Dipendenti", data=pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo])], ignore_index=True))
+                        st.success("Aggiunto!"); st.rerun()
             with t_db:
-                st.write("### Storico Richieste")
-                st.dataframe(df_richieste, use_container_width=True)
+                st.dataframe(df_richieste)# --- 5. AREA PRIVATA (Incolla questo UNICO blocco) ---
+    else:
+        nome_u = str(st.session_state.utente_loggato)
+        dati_u = df_dip[df_dip['Nome_Display'] == nome_u].iloc[0]
+        
+        # --- BLOCCO CAMBIO PASSWORD OBBLIGATORIO ---
+        if str(dati_u['PrimoAccesso']) == "1":
+            st.warning(f"👋 Ciao {nome_u}, devi cambiare la password al primo accesso.")
+            with st.form("cambio_pass"):
+                nuova_p = st.text_input("Nuova Password", type="password")
+                conf_p = st.text_input("Conferma Password", type="password")
+                if st.form_submit_button("SALVA E ACCEDI"):
+                    if nuova_p == conf_p and len(nuova_p) > 3:
+                        idx = df_dip[df_dip['Nome_Display'] == nome_u].index[0]
+                        df_dip.at[idx, 'Password'] = nuova_p
+                        df_dip.at[idx, 'PrimoAccesso'] = "0"
+                        conn.update(worksheet="Dipendenti", data=df_dip.drop(columns=['Nome_Display']))
+                        st.success("✅ Password aggiornata!"); st.rerun()
+                    else: st.error("Password non valide!")
+            st.stop()
+
+        # --- MENU NAVIGAZIONE ---
+        st.sidebar.success(f"👤 {nome_u}")
+        try:
+            df_richieste = conn.read(worksheet="Richieste", ttl="1m")
+            df_limiti = conn.read(worksheet="Limiti_Mensili", ttl="1m")
+        except:
+            st.error("⚠️ Errore Database. Aspetta 60 secondi."); st.stop()
+
+        menu = ["📊 Dashboard Saldi", "📩 Invia Richiesta"]
+        if "ROSSINI" in nome_u.upper(): menu.append("⚙️ Pannello Admin")
+        scelta = st.sidebar.radio("Navigazione", menu)
+        
+        if st.sidebar.button("Esci / Logout"):
+            st.session_state.autenticato = False; st.rerun()
+
+        # --- SEZIONI ---
+        if "Saldi" in scelta:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Ferie residue", f"{dati_u['Ferie']} gg")
+            c2.metric("ROL residue", f"{dati_u['ROL']} ore")
+            c3.metric("Contratto", dati_u['Contratto'])
+
+        elif "Richiesta" in scelta:
+            with st.form("form_richiesta"):
+                tipo = st.selectbox("Causale", ["Ferie", "ROL", "Legge 104"])
+                periodo = st.date_input("Periodo (Inizio e Fine)", value=())
+                note = st.text_area("Note")
+                if st.form_submit_button("Invia"):
+                    if len(periodo) == 2:
+                        giorni = pd.date_range(start=periodo[0], end=periodo[1])
+                        mesi_it = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+                        for g in giorni:
+                            m_n = mesi_it[g.month - 1]
+                            lim = int(df_limiti[df_limiti['Mese'] == m_n]['Limite'].values[0])
+                            occ = df_richieste[df_richieste['Periodo'].astype(str) == str(g.date())].shape[0]
+                            if tipo in ["Ferie", "ROL"] and occ >= lim:
+                                st.error(f"❌ {g.strftime('%d/%m')} pieno!"); st.stop()
+                        nuove = [{"Data_Richiesta": pd.Timestamp.now().strftime("%d/%m/%Y"), "Nome": nome_u, "Tipo": tipo, "Periodo": str(gx.date()), "Note": note} for gx in giorni]
+                        conn.update(worksheet="Richieste", data=pd.concat([df_richieste, pd.DataFrame(nuove)], ignore_index=True))
+                        st.success("✅ Salvato!"); st.balloons()
+
+        elif "Admin" in scelta:
+            t_ods, t_lim, t_add, t_db = st.tabs(["📅 MATRICE ODS", "🔢 LIMITI", "➕ NUOVO", "📊 DB"])
+            with t_ods:
+                giorni_p = [pd.Timestamp.now().date() + pd.Timedelta(days=i) for i in range(7)]
+                df_richieste['Data_Giorno'] = pd.to_datetime(df_richieste['Periodo']).dt.date
+                assenti = df_richieste[df_richieste['Data_Giorno'].isin(giorni_p)]['Nome'].unique()
+                if len(assenti) > 0:
+                    matrice = []
+                    for dip in sorted(assenti):
+                        r = {"Dipendente": dip}
+                        for g in giorni_p:
+                            col = g.strftime('%a %d/%m')
+                            m = df_richieste[(df_richieste['Nome'] == dip) & (df_richieste['Data_Giorno'] == g)]
+                            r[col] = m['Tipo'].values[0] if not m.empty else "-"
+                        matrice.append(r)
+                    st.dataframe(pd.DataFrame(matrice).set_index("Dipendente"), use_container_width=True)
+            with t_lim:
+                nuovi_l = {}
+                c1, c2, c3 = st.columns(3)
+                for i, r in df_limiti.iterrows():
+                    with [c1, c2, c3][i % 3]: nuovi_l[r['Mese']] = st.number_input(r['Mese'], 1, 15, int(r['Limite']))
+                if st.button("Salva Limiti"):
+                    conn.update(worksheet="Limiti_Mensili", data=pd.DataFrame(list(nuovi_l.items()), columns=['Mese', 'Limite']))
+                    st.success("Limiti OK!")
+            with t_add:
+                with st.form("add_u"):
+                    n_n = st.text_input("Nome Cognome").upper()
+                    c_n = st.selectbox("Contratto", ["Fiduciario", "Armato"])
+                    if st.form_submit_button("Aggiungi"):
+                        nuovo = {"Nome": n_n, "Password": "12345", "Ferie": 0, "ROL": 0, "Contratto": c_n, "PrimoAccesso": "1"}
+                        conn.update(worksheet="Dipendenti", data=pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo])], ignore_index=True))
+                        st.success("Aggiunto!"); st.rerun()
+            with t_db:
+                st.dataframe(df_richieste)
