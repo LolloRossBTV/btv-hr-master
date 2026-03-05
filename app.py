@@ -142,14 +142,33 @@ else:
             tipo = st.selectbox("Tipo", ["Ferie", "ROL", "104", "Congedo"])
             periodo = st.date_input("Date", value=())
             note = st.text_area("Note")
-            if st.form_submit_button("Invia"):
-                if len(periodo) == 2:
-                    giorni = pd.date_range(start=periodo[0], end=periodo[1])
-                    nuove_richieste = []
-                    for g in giorni:
-                        nuove_richieste.append({
-                            "Data_Richiesta": datetime.now().strftime("%d/%m/%Y"),
-                            "Nome": st.session_state.utente_loggato,
+           with t3: # Aggiungi Dipendente
+            with st.form("add_dip"):
+                n_nome = st.text_input("Nome e Cognome").upper()
+                n_cont = st.selectbox("Contratto", ["Fiduciario", "Armato", "Admin"])
+                # NUOVO: Selettore per esenzione limiti
+                n_esente = st.selectbox("Esenzione Limiti Prenotazione", ["NO (Soggetto a limiti)", "SI (Senza limiti)"])
+                
+                if st.form_submit_button("Registra Dipendente"):
+                    if n_nome:
+                        # Convertiamo la scelta in 0 o 1
+                        val_esente = "1" if "SI" in n_esente else "0"
+                        
+                        nuovo_d = {
+                            "Nome": n_nome, 
+                            "Password": "12345", 
+                            "Ferie": 0, 
+                            "ROL": 0, 
+                            "Contratto": n_cont, 
+                            "PrimoAccesso": "1",
+                            "SenzaLimiti": val_esente  # Salva il flag nel foglio
+                        }
+                        
+                        df_nuovo = pd.concat([df_dip.drop(columns=['Nome_Display']), pd.DataFrame([nuovo_d])], ignore_index=True)
+                        conn.update(worksheet="Dipendenti", data=df_agg_f)
+                        st.success(f"✅ {n_nome} aggiunto correttamente!"); st.rerun()
+                    else:
+                        st.error("Inserisci un nome!")
                             "Tipo": tipo,
                             "Periodo": str(g.date()),
                             "Note": note
