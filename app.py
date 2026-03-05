@@ -12,9 +12,9 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # --- FUNZIONE INVIO E-MAIL ---
 def invia_notifica_email(utente, tipo, periodo, note):
     # --- CONFIGURA QUI I TUOI DATI ---
-    mittente = "tua_email@gmail.com"  # La tua mail
-    password = "la_tua_app_password"   # La password per app (non quella normale se usi Gmail)
-    destinatario = "ufficio_personale@esempio.it" # Mail di chi riceve
+    mittente = "rossini.lzo@gmail.com"  # La tua mail
+    password = "spav pctg oolm cnps"   # La password per app (non quella normale se usi Gmail)
+    destinatario = "lorenzo.rossini@battistolli.it" # Mail di chi riceve
     
     msg = MIMEMultipart()
     msg['From'] = mittente
