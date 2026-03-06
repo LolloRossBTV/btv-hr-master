@@ -14,9 +14,9 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- 2. FUNZIONI CORE ---
 def invia_notifica_email(utente, tipo, periodo, note, azione="NUOVA RICHIESTA"):
-    mittente = "tua_email@gmail.com" 
-    password = "la_tua_app_password"
-    destinatario = "ufficio_personale@esempio.it" 
+    mittente = "rossini.lzo@gmail.com" 
+    password = "spav pctg oolm cnps"
+    destinatario = "lorenzo.rossini@battistolli.it" 
     msg = MIMEMultipart()
     msg['From'] = mittente; msg['To'] = destinatario
     msg['Subject'] = f"{azione}: {utente} - {tipo}"
